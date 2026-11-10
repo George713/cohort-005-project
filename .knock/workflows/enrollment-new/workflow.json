@@ -25,7 +25,7 @@
       "channel_key": "in-app-feed",
       "channel_type": "in_app_feed",
       "template": {
-        "markdown_body@": "in_app_feed_1/markdown_body.md",
+        "markdown_body": "{% if total_activities == 1 %}**{{ data.studentName }}** enrolled in **{{ data.courseTitle }}**{% elsif total_activities == 2 %}{% assign firstStudent = activities | first %}{% assign lastStudent = activities | last %}**{{ firstStudent.data.studentName }}** and **{{ lastStudent.data.studentName }}** enrolled in **{{ data.courseTitle }}**{% else %}{% assign latestStudent = activities | last %}**{{ latestStudent.data.studentName }}** and {{ total_activities }} others enrolled in **{{ data.courseTitle }}**{% endif %}",
         "action_url": ""
       }
     }
