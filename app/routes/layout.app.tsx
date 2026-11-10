@@ -1,4 +1,18 @@
-import { Outlet } from "react-router";
+import { Outlet, useSearchParams } from "react-router";
+import { useState } from "react";
+import {
+  useProtoFeed,
+  useVariant,
+  announce,
+  VARIANTS,
+  VariantABell,
+  VariantBNavItem,
+  VariantBDrawer,
+  VariantCNavItem,
+  VariantCPage,
+  SimulateButton,
+} from "~/components/notification-feed.prototype";
+import { PrototypeSwitcher } from "~/components/prototype-switcher";
 import type { Route } from "./+types/layout.app";
 import { Sidebar } from "~/components/sidebar";
 import { DevUI } from "~/components/dev-ui";
@@ -213,7 +227,20 @@ export async function loader({ request }: Route.LoaderArgs) {
     countryTierInfo,
     countries: COUNTRIES,
     isTeamAdmin: currentUserId ? isTeamAdmin(currentUserId) : false,
+    protoLessonHref: getProtoLessonHref(),
   };
+}
+
+// PROTOTYPE: any real lesson, so example Discussion Notifications open a real page.
+function getProtoLessonHref() {
+  const row = db
+    .select({ slug: courses.slug, lessonId: lessons.id })
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .innerJoin(courses, eq(modules.courseId, courses.id))
+    .limit(1)
+    .get();
+  return row ? `/courses/${row.slug}/lessons/${row.lessonId}` : "/courses";
 }
 
 export default function AppLayout({ loaderData }: Route.ComponentProps) {
@@ -225,18 +252,32 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
     countryTierInfo,
     countries,
     isTeamAdmin: userIsTeamAdmin,
+    protoLessonHref,
   } = loaderData;
+
+  const sidebarProps = {
+    currentUser,
+    recentCourses,
+    isTeamAdmin: userIsTeamAdmin,
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar
-        currentUser={currentUser}
-        recentCourses={recentCourses}
-        isTeamAdmin={userIsTeamAdmin}
-      />
-      <main className="flex-1 overflow-y-auto">
-        <Outlet />
-      </main>
+      {currentUser ? (
+        <NotificationPrototype
+          key={currentUser.id}
+          viewer={{ role: currentUser.role, isTeamAdmin: userIsTeamAdmin }}
+          lessonHref={protoLessonHref}
+          sidebarProps={sidebarProps}
+        />
+      ) : (
+        <>
+          <Sidebar {...sidebarProps} />
+          <main className="flex-1 overflow-y-auto">
+            <Outlet />
+          </main>
+        </>
+      )}
       <DevUI
         users={users}
         currentUser={currentUser}
@@ -246,5 +287,62 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
       />
       <Toaster position="bottom-right" richColors closeButton />
     </div>
+  );
+}
+
+// PROTOTYPE: mounts the Notification Feed variants around the real sidebar and page.
+function NotificationPrototype({
+  viewer,
+  lessonHref,
+  sidebarProps,
+}: {
+  viewer: Parameters<typeof useProtoFeed>[0];
+  lessonHref: string;
+  sidebarProps: React.ComponentProps<typeof Sidebar>;
+}) {
+  const feed = useProtoFeed(viewer, lessonHref);
+  const variant = useVariant();
+  const [sp] = useSearchParams();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [liveIds, setLiveIds] = useState(() => new Set<number>());
+
+  function simulate() {
+    const n = feed.simulate();
+    setLiveIds((s) => new Set(s).add(n.id));
+    announce(variant, n);
+  }
+
+  return (
+    <>
+      <Sidebar
+        {...sidebarProps}
+        headerSlot={variant === "A" ? <VariantABell feed={feed} /> : undefined}
+        navTopSlot={
+          variant === "B" ? (
+            <VariantBNavItem feed={feed} onOpen={() => setDrawerOpen(true)} />
+          ) : variant === "C" ? (
+            <VariantCNavItem feed={feed} />
+          ) : undefined
+        }
+      />
+      <main className="flex-1 overflow-y-auto">
+        {variant === "C" && sp.get("feed") === "1" ? (
+          <VariantCPage feed={feed} liveIds={liveIds} />
+        ) : (
+          <Outlet />
+        )}
+      </main>
+      {variant === "B" && (
+        <VariantBDrawer
+          feed={feed}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+        />
+      )}
+      <PrototypeSwitcher
+        variants={VARIANTS}
+        extra={<SimulateButton onClick={simulate} />}
+      />
+    </>
   );
 }
