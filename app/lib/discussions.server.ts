@@ -1,7 +1,14 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
-import { comments, courses, lessons, modules, users } from "~/db/schema";
+import {
+  comments,
+  courses,
+  lessons,
+  modules,
+  users,
+  UserRole,
+} from "~/db/schema";
 import {
   lessonCommentUrl,
   MAX_COMMENT_LENGTH,
@@ -87,8 +94,8 @@ export function createComment(
     return { ok: false, status: 404, error: "Lesson not found" };
   }
 
+  const parent = parentId === null ? null : getComment(db, parentId);
   if (parentId !== null) {
-    const parent = getComment(db, parentId);
     if (!parent) {
       return { ok: false, status: 404, error: "Parent comment not found" };
     }
@@ -115,28 +122,55 @@ export function createComment(
     .get();
 
   // A top-level comment by anyone but the course's Instructor is a Discussion
-  // Question, and the Instructor hears about it. A Discussion Reply carries no
-  // discussion-question-new Notification.
+  // Question, and the Instructor hears about it. A Discussion Reply from the
+  // course's Instructor or a Platform Admin answers the question its author
+  // asked, so that author hears about it. The Notifications module drops the
+  // actor, so staff replying to their own question notify nobody.
   let notification: Notification | null = null;
-  if (parentId === null && userId !== lesson.instructorId) {
+  if (parentId === null) {
+    if (userId !== lesson.instructorId) {
+      const author = db
+        .select({ name: users.name })
+        .from(users)
+        .where(eq(users.id, userId))
+        .get();
+
+      notification = {
+        kind: "discussion-question-new",
+        recipients: [lesson.instructorId],
+        actor: userId,
+        subjectId: comment.id,
+        data: {
+          studentName: author?.name ?? "Someone",
+          courseTitle: lesson.courseTitle,
+          lessonTitle: lesson.title,
+          url: lessonCommentUrl(lesson.courseSlug, lessonId, comment.id),
+        },
+      };
+    }
+  } else if (parent) {
     const author = db
-      .select({ name: users.name })
+      .select({ name: users.name, role: users.role })
       .from(users)
       .where(eq(users.id, userId))
       .get();
+    const isStaff =
+      userId === lesson.instructorId || author?.role === UserRole.Admin;
 
-    notification = {
-      kind: "discussion-question-new",
-      recipients: [lesson.instructorId],
-      actor: userId,
-      subjectId: comment.id,
-      data: {
-        studentName: author?.name ?? "Someone",
-        courseTitle: lesson.courseTitle,
-        lessonTitle: lesson.title,
-        url: lessonCommentUrl(lesson.courseSlug, lessonId, comment.id),
-      },
-    };
+    if (isStaff) {
+      notification = {
+        kind: "discussion-reply-from-staff",
+        recipients: [parent.userId],
+        actor: userId,
+        subjectId: comment.id,
+        data: {
+          staffName: author?.name ?? "Someone",
+          courseTitle: lesson.courseTitle,
+          lessonTitle: lesson.title,
+          url: lessonCommentUrl(lesson.courseSlug, lessonId, comment.id),
+        },
+      };
+    }
   }
 
   return { ok: true, comment, notification };
