@@ -595,7 +595,12 @@ export function listTeamLicences(db: Queryable, buyerId: number, now: Date) {
 // ─── Deciding a Refund Request ───
 
 export type DecisionResult =
-  | { ok: true; email: Email; archive: ArchiveRequest }
+  | {
+      ok: true;
+      email: Email;
+      notification: Notification;
+      archive: ArchiveRequest;
+    }
   | Failure;
 
 /**
@@ -716,6 +721,14 @@ export function approveRefundRequest(
     return {
       ok: true,
       email: buildDecisionEmail(tx, purchase, RefundStatus.Approved, note),
+      notification: buildDecisionNotification(
+        tx,
+        purchase,
+        refundRequestId,
+        platformAdminId,
+        RefundStatus.Approved,
+        note
+      ),
       archive: archiveOpenedNotification(refundRequestId),
     };
   });
@@ -762,6 +775,14 @@ export function declineRefundRequest(
       email: buildDecisionEmail(
         tx,
         found.purchase,
+        RefundStatus.Declined,
+        trimmedNote
+      ),
+      notification: buildDecisionNotification(
+        tx,
+        found.purchase,
+        refundRequestId,
+        platformAdminId,
         RefundStatus.Declined,
         trimmedNote
       ),
@@ -815,5 +836,43 @@ function buildDecisionEmail(
       "",
       "— The Cadence team",
     ].join("\n"),
+  };
+}
+
+/** The Notification the buyer gets once their Refund Request is decided. */
+function buildDecisionNotification(
+  db: Queryable,
+  purchase: Purchase,
+  refundRequestId: number,
+  platformAdminId: number,
+  decision: RefundStatus.Approved | RefundStatus.Declined,
+  note: string | null
+): Notification {
+  const course = db
+    .select()
+    .from(courses)
+    .where(eq(courses.id, purchase.courseId))
+    .get();
+
+  const data: Record<string, unknown> = {
+    courseTitle: course?.title ?? "your course",
+    decisionNote: note,
+  };
+
+  // Only a decline sends the buyer back to their Refund Requests, scrolled to
+  // and highlighting this one. An approval has nothing left to act on.
+  if (decision === RefundStatus.Declined) {
+    data.url = `/settings?refundRequest=${refundRequestId}`;
+  }
+
+  return {
+    kind:
+      decision === RefundStatus.Approved
+        ? "refund-request-approved"
+        : "refund-request-declined",
+    recipients: [purchase.userId],
+    actor: platformAdminId,
+    subjectId: refundRequestId,
+    data,
   };
 }

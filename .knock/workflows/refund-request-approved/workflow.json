@@ -1,0 +1,17 @@
+{
+  "key": "refund-request-approved",
+  "name": "Refund Request approved",
+  "description": "Tells the buyer their Refund Request was approved.",
+  "trigger_frequency": "every_trigger",
+  "steps": [
+    {
+      "ref": "in_app_feed_1",
+      "type": "channel",
+      "channel_key": "in-app-feed",
+      "channel_type": "in_app_feed",
+      "template": {
+        "markdown_body": "Your Refund Request for **{{ data.courseTitle }}** was approved."
+      }
+    }
+  ]
+}

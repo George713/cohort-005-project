@@ -396,6 +396,51 @@ describe("approving a Refund Request", () => {
     });
   });
 
+  it("returns an approved Notification to the buyer with no destination", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    const result = approveRefundRequest(
+      db,
+      id,
+      platformAdmin.id,
+      "Enjoy the rest of your week.",
+      NOW
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toEqual({
+      kind: "refund-request-approved",
+      recipients: [base.user.id],
+      actor: platformAdmin.id,
+      subjectId: id,
+      data: {
+        courseTitle: base.course.title,
+        decisionNote: "Enjoy the rest of your week.",
+      },
+    });
+  });
+
+  it("returns the approved Notification to a Team Licence's Team Admin", () => {
+    const priya = addLearner("Priya");
+    const { purchase } = buySeats(priya.id, 2);
+    const id = raise(purchase.id, priya.id);
+
+    const result = approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toEqual({
+      kind: "refund-request-approved",
+      recipients: [priya.id],
+      actor: platformAdmin.id,
+      subjectId: id,
+      data: {
+        courseTitle: base.course.title,
+        decisionNote: null,
+      },
+    });
+  });
+
   it("emails the buyer that the refund is on its way", () => {
     const purchase = buyForSelf(base.user.id);
     const id = raise(purchase.id, base.user.id);
@@ -433,6 +478,32 @@ describe("declining a Refund Request", () => {
     });
   });
 
+  it("returns a declined Notification to the buyer with the note and a link to that request", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    const result = declineRefundRequest(
+      db,
+      id,
+      platformAdmin.id,
+      "You finished the course.",
+      NOW
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toEqual({
+      kind: "refund-request-declined",
+      recipients: [base.user.id],
+      actor: platformAdmin.id,
+      subjectId: id,
+      data: {
+        courseTitle: base.course.title,
+        decisionNote: "You finished the course.",
+        url: `/settings?refundRequest=${id}`,
+      },
+    });
+  });
+
   it("keeps the buyer's Enrollment and lets them raise a new Refund Request", () => {
     const purchase = buyForSelf(base.user.id);
     const id = raise(purchase.id, base.user.id);
@@ -449,6 +520,33 @@ describe("declining a Refund Request", () => {
     expect(result.email.body).toContain("You finished the course.");
     expect(isEnrolled(base.user.id)).toBe(true);
     expect(checkRefundRequest(db, purchase.id, base.user.id, NOW).ok).toBe(true);
+  });
+
+  it("returns the declined Notification to a Team Licence's Team Admin", () => {
+    const priya = addLearner("Priya");
+    const { purchase } = buySeats(priya.id, 2);
+    const id = raise(purchase.id, priya.id);
+
+    const result = declineRefundRequest(
+      db,
+      id,
+      platformAdmin.id,
+      "Seats are in use.",
+      NOW
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toEqual({
+      kind: "refund-request-declined",
+      recipients: [priya.id],
+      actor: platformAdmin.id,
+      subjectId: id,
+      data: {
+        courseTitle: base.course.title,
+        decisionNote: "Seats are in use.",
+        url: `/settings?refundRequest=${id}`,
+      },
+    });
   });
 
   it("frees a Team Licence's Seats again", () => {
