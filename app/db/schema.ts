@@ -351,7 +351,8 @@ export const comments = sqliteTable(
     // updatedAt to createdAt, which collide when both writes land in the same
     // millisecond.
     editedAt: text("edited_at"),
-    // Soft delete. Deleted top-level comments keep their replies readable.
+    // Soft delete. Deleting a Discussion Question also soft-deletes its
+    // Discussion Replies; the thread hides both with no placeholder.
     deletedAt: text("deleted_at"),
   },
   (table) => [

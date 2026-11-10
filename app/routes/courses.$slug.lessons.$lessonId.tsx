@@ -386,8 +386,9 @@ function getLessonThread(lessonId: number): ThreadComment[] {
     byId.get(row.parentId)?.replies.push(toThreadComment(row));
   }
 
-  // A deleted question with no replies left has nothing worth showing.
-  return topLevel.filter((c) => !c.deleted || c.replies.length > 0);
+  // Deleting a Discussion Question also deletes its Discussion Replies, so a
+  // deleted question is hidden entirely — no placeholder is left behind.
+  return topLevel.filter((c) => !c.deleted);
 }
 
 function getQuizByLessonId(lessonId: number) {

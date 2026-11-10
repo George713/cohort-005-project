@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
 import { comments, courses, lessons, modules, users } from "~/db/schema";
@@ -186,23 +186,51 @@ export function deleteComment(
   if (!existing) {
     return { ok: false, status: 404, error: "Comment not found" };
   }
-  if (existing.userId !== userId && !isStaff) {
+
+  // A Discussion Question's author may edit it but not delete it: only the
+  // course's Instructor or a Platform Admin can remove a question. A
+  // Discussion Reply still belongs to its author (or staff).
+  if (existing.parentId === null) {
+    if (!isStaff) {
+      return {
+        ok: false,
+        status: 403,
+        error:
+          "Only this course's Instructor or a Platform Admin can delete a Discussion Question",
+      };
+    }
+  } else if (existing.userId !== userId && !isStaff) {
     return {
       ok: false,
       status: 403,
       error: "You can only delete your own comments",
     };
   }
+
   if (existing.deletedAt !== null) {
     return { ok: true, comment: existing };
   }
 
-  const comment = db
-    .update(comments)
-    .set({ deletedAt: new Date().toISOString() })
-    .where(eq(comments.id, commentId))
-    .returning()
-    .get();
+  return db.transaction((tx): CommentResult => {
+    const deletedAt = new Date().toISOString();
 
-  return { ok: true, comment };
+    // A Discussion Question takes its Discussion Replies with it. They are
+    // soft-deleted like any other comment, and the thread stops showing the
+    // question, so no placeholder is left behind.
+    if (existing.parentId === null) {
+      tx.update(comments)
+        .set({ deletedAt })
+        .where(and(eq(comments.parentId, commentId), isNull(comments.deletedAt)))
+        .run();
+    }
+
+    const comment = tx
+      .update(comments)
+      .set({ deletedAt })
+      .where(eq(comments.id, commentId))
+      .returning()
+      .get();
+
+    return { ok: true, comment };
+  });
 }
