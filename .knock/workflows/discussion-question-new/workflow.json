@@ -1,0 +1,18 @@
+{
+  "key": "discussion-question-new",
+  "name": "New Discussion Question",
+  "description": "Tells the course's Instructor that someone asked a Discussion Question on a lesson.",
+  "trigger_frequency": "every_trigger",
+  "steps": [
+    {
+      "ref": "in_app_feed_1",
+      "type": "channel",
+      "channel_key": "in-app-feed",
+      "channel_type": "in_app_feed",
+      "template": {
+        "markdown_body": "**{{ data.studentName }}** asked a Discussion Question on **{{ data.lessonTitle }}** in **{{ data.courseTitle }}**.",
+        "action_url": "{{ data.url }}"
+      }
+    }
+  ]
+}

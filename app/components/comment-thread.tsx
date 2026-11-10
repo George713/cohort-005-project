@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useFetcher } from "react-router";
+import { useFetcher, useLocation } from "react-router";
 import { toast } from "sonner";
 import { MessageSquare, Pencil, Reply, Trash2 } from "lucide-react";
 import { Button } from "~/components/ui/button";
@@ -7,7 +7,11 @@ import { Card, CardContent } from "~/components/ui/card";
 import { Textarea } from "~/components/ui/textarea";
 import { UserAvatar } from "~/components/user-avatar";
 import { cn, formatRelativeTime } from "~/lib/utils";
-import { MAX_COMMENT_LENGTH } from "~/lib/comments";
+import {
+  commentAnchorId,
+  DISCUSSION_THREAD_ANCHOR_ID,
+  MAX_COMMENT_LENGTH,
+} from "~/lib/comments";
 
 // Bodies arrive pre-rendered from the server (renderComment), because comments
 // are untrusted markdown and the sanitising renderer is server-only.
@@ -100,7 +104,11 @@ function CommentForm({
       />
 
       <div className="flex items-center gap-3">
-        <Button type="submit" size="sm" disabled={submitting || empty || tooLong}>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={submitting || empty || tooLong}
+        >
           {submitting ? "Posting..." : submitLabel}
         </Button>
 
@@ -208,7 +216,8 @@ function CommentItem({
   const [editing, setEditing] = useState(false);
   const [replying, setReplying] = useState(false);
 
-  const isAuthor = currentUserId !== null && comment.author.id === currentUserId;
+  const isAuthor =
+    currentUserId !== null && comment.author.id === currentUserId;
 
   if (comment.deleted) {
     return (
@@ -227,7 +236,15 @@ function CommentItem({
   }
 
   return (
-    <div className={cn("py-3", isReply && "border-l pl-4")}>
+    <div
+      // A Notification links to #comment-<id>; the hash is also what :target
+      // uses to highlight the comment it names.
+      id={commentAnchorId(comment.id)}
+      className={cn(
+        "scroll-mt-24 py-3 target:rounded-lg target:bg-amber-50 target:ring-2 target:ring-amber-400/60 dark:target:bg-amber-950/40",
+        isReply && "border-l pl-4"
+      )}
+    >
       <div className="flex items-start gap-3">
         <UserAvatar
           name={comment.author.name}
@@ -362,8 +379,33 @@ export function CommentThread({
   canPost: boolean;
   instructorName: string;
 }) {
+  const location = useLocation();
+
+  // A Notification's url carries the anchor. If its comment was deleted (or a
+  // stale link names one that never existed) fall back to the top of the
+  // discussion thread.
+  useEffect(() => {
+    const anchor = location.hash.slice(1);
+    if (!anchor.startsWith("comment-")) return;
+
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById(anchor);
+
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+
+      document
+        .getElementById(DISCUSSION_THREAD_ANCHOR_ID)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [location.hash]);
+
   return (
-    <Card className="mb-8">
+    <Card id={DISCUSSION_THREAD_ANCHOR_ID} className="mb-8 scroll-mt-24">
       <CardContent className="p-6">
         <div className="mb-4 flex items-center gap-2">
           <MessageSquare className="size-5 text-primary" />

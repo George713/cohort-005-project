@@ -1,8 +1,13 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
-import { comments, lessons } from "~/db/schema";
-import { MAX_COMMENT_LENGTH, MIN_COMMENT_LENGTH } from "~/lib/comments";
+import { comments, courses, lessons, modules, users } from "~/db/schema";
+import {
+  lessonCommentUrl,
+  MAX_COMMENT_LENGTH,
+  MIN_COMMENT_LENGTH,
+} from "~/lib/comments";
+import type { Notification } from "~/lib/notifications.server";
 
 // ─── Discussions ───
 // Everything about writing in a lesson's discussion: posting, editing and
@@ -25,6 +30,15 @@ export type Failure = {
   error: string;
 };
 export type CommentResult = { ok: true; comment: Comment } | Failure;
+
+export type CreateCommentResult =
+  | {
+      ok: true;
+      comment: Comment;
+      /** The Notification the comment produced, if any. */
+      notification: Notification | null;
+    }
+  | Failure;
 
 type ValidBody = { ok: true; body: string } | Failure;
 
@@ -53,13 +67,20 @@ export function createComment(
   lessonId: number,
   parentId: number | null,
   body: string
-): CommentResult {
+): CreateCommentResult {
   const validated = validBody(body);
   if (!validated.ok) return validated;
 
   const lesson = db
-    .select({ id: lessons.id })
+    .select({
+      title: lessons.title,
+      courseTitle: courses.title,
+      courseSlug: courses.slug,
+      instructorId: courses.instructorId,
+    })
     .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .innerJoin(courses, eq(modules.courseId, courses.id))
     .where(eq(lessons.id, lessonId))
     .get();
   if (!lesson) {
@@ -93,7 +114,32 @@ export function createComment(
     .returning()
     .get();
 
-  return { ok: true, comment };
+  // A top-level comment by anyone but the course's Instructor is a Discussion
+  // Question, and the Instructor hears about it. A Discussion Reply carries no
+  // discussion-question-new Notification.
+  let notification: Notification | null = null;
+  if (parentId === null && userId !== lesson.instructorId) {
+    const author = db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, userId))
+      .get();
+
+    notification = {
+      kind: "discussion-question-new",
+      recipients: [lesson.instructorId],
+      actor: userId,
+      subjectId: comment.id,
+      data: {
+        studentName: author?.name ?? "Someone",
+        courseTitle: lesson.courseTitle,
+        lessonTitle: lesson.title,
+        url: lessonCommentUrl(lesson.courseSlug, lessonId, comment.id),
+      },
+    };
+  }
+
+  return { ok: true, comment, notification };
 }
 
 export function editComment(
