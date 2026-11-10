@@ -1,0 +1,18 @@
+{
+  "key": "refund-request-opened",
+  "name": "New Open Refund Request",
+  "description": "Tells every Platform Admin that a buyer raised a Refund Request.",
+  "trigger_frequency": "every_trigger",
+  "steps": [
+    {
+      "ref": "in_app_feed_1",
+      "type": "channel",
+      "channel_key": "in-app-feed",
+      "channel_type": "in_app_feed",
+      "template": {
+        "markdown_body": "**{{ data.buyerName }}** opened a Refund Request for **{{ data.courseTitle }}**: “{{ data.reason }}”",
+        "action_url": "{{ data.url }}"
+      }
+    }
+  ]
+}

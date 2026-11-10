@@ -15,8 +15,10 @@ import {
   videoWatchEvents,
   LessonProgressStatus,
   RefundStatus,
+  UserRole,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
+import type { Notification } from "~/lib/notifications.server";
 import {
   REFUND_COMPLETION_LIMIT,
   REFUND_WATCH_LIMIT_SECONDS,
@@ -351,7 +353,13 @@ export function getRefundOffer(
 export type Email = { to: string; subject: string; body: string };
 
 export type RaiseResult =
-  | { ok: true; refundRequestId: number; kind: PurchaseKind; email: Email }
+  | {
+      ok: true;
+      refundRequestId: number;
+      kind: PurchaseKind;
+      email: Email;
+      notification: Notification;
+    }
   | Failure;
 
 export function raiseRefundRequest(
@@ -387,6 +395,12 @@ export function raiseRefundRequest(
     .returning()
     .get();
 
+  const platformAdmins = db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, UserRole.Admin))
+    .all();
+
   return {
     ok: true,
     refundRequestId: refundRequest.id,
@@ -404,6 +418,18 @@ export function raiseRefundRequest(
         "",
         "— The Cadence team",
       ].join("\n"),
+    },
+    notification: {
+      kind: "refund-request-opened",
+      recipients: platformAdmins.map((admin) => admin.id),
+      actor: buyerId,
+      subjectId: refundRequest.id,
+      data: {
+        buyerName: buyer.name,
+        courseTitle: course.title,
+        reason,
+        url: "/admin/refunds",
+      },
     },
   };
 }
