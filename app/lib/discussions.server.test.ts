@@ -328,6 +328,7 @@ describe("notifying the asking Student of a staff Discussion Reply", () => {
       async send(delivery) {
         sent.push(delivery);
       },
+      async archive() {},
     });
 
     expect(sent).toHaveLength(0);
