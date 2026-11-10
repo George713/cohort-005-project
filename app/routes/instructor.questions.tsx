@@ -14,6 +14,7 @@ import { AlertTriangle, CheckCircle2, ExternalLink } from "lucide-react";
 import { cn, daysSince, formatRelativeTime } from "~/lib/utils";
 import { MAX_COMMENT_LENGTH } from "~/lib/comments";
 import { createComment, getComment } from "~/lib/discussions.server";
+import { sendNotification } from "~/lib/notifications.server";
 import { parseFormData } from "~/lib/validation";
 import { db } from "~/db";
 import {
@@ -175,6 +176,12 @@ export async function action({ request }: Route.ActionArgs) {
   );
   if (!result.ok) {
     return { ok: false, error: result.error };
+  }
+
+  // Replying from the queue tells the asking Student exactly as replying on the
+  // lesson page does.
+  if (result.notification) {
+    await sendNotification(result.notification);
   }
 
   return { ok: true };

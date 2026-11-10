@@ -8,6 +8,10 @@ import {
   editComment,
   getComment,
 } from "./discussions.server";
+import {
+  sendNotification,
+  type NotificationTransport,
+} from "./notifications.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
 
@@ -46,6 +50,18 @@ function addStudent(name: string) {
       name,
       email: `${name.toLowerCase()}@example.com`,
       role: UserRole.Student,
+    })
+    .returning()
+    .get();
+}
+
+function addAdmin(name: string) {
+  return db
+    .insert(schema.users)
+    .values({
+      name,
+      email: `${name.toLowerCase()}@example.com`,
+      role: UserRole.Admin,
     })
     .returning()
     .get();
@@ -141,7 +157,7 @@ describe("creating a comment", () => {
     );
 
     if (!result.ok) throw new Error(result.error);
-    expect(result.notification).toBeNull();
+    expect(result.notification?.kind).not.toBe("discussion-question-new");
   });
 
   it("refuses an empty comment", () => {
@@ -214,6 +230,108 @@ describe("creating a comment", () => {
       status: 404,
       error: "Lesson not found",
     });
+  });
+});
+
+describe("notifying the asking Student of a staff Discussion Reply", () => {
+  it("tells the Discussion Question's author when the course's Instructor replies", () => {
+    const question = postQuestion();
+
+    const result = createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      question.id,
+      "Hooks let you reuse stateful logic."
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toMatchObject({
+      kind: "discussion-reply-from-staff",
+      recipients: [base.user.id],
+      actor: base.instructor.id,
+      subjectId: result.comment.id,
+      data: {
+        staffName: base.instructor.name,
+        courseTitle: base.course.title,
+        lessonTitle: "Lesson 1",
+        url: `/courses/test-course/lessons/${lessonId}#comment-${result.comment.id}`,
+      },
+    });
+  });
+
+  it("tells the Discussion Question's author when a Platform Admin replies", () => {
+    const question = postQuestion();
+    const admin = addAdmin("Pat Admin");
+
+    const result = createComment(
+      db,
+      admin.id,
+      lessonId,
+      question.id,
+      "Answering as Cadence staff."
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toMatchObject({
+      kind: "discussion-reply-from-staff",
+      recipients: [base.user.id],
+      actor: admin.id,
+      subjectId: result.comment.id,
+      data: {
+        staffName: admin.name,
+        courseTitle: base.course.title,
+        lessonTitle: "Lesson 1",
+        url: `/courses/test-course/lessons/${lessonId}#comment-${result.comment.id}`,
+      },
+    });
+  });
+
+  it("sends nothing when another Student replies", () => {
+    const question = postQuestion();
+    const ben = addStudent("Ben");
+
+    const result = createComment(
+      db,
+      ben.id,
+      lessonId,
+      question.id,
+      "A student's answer."
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toBeNull();
+  });
+
+  it("notifies nobody when staff reply to their own question", async () => {
+    const ownQuestion = createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      null,
+      "A note from me."
+    );
+    if (!ownQuestion.ok) throw new Error(ownQuestion.error);
+
+    const reply = createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      ownQuestion.comment.id,
+      "Following up on my own note."
+    );
+    if (!reply.ok) throw new Error(reply.error);
+    if (!reply.notification) throw new Error("Expected a Notification value.");
+
+    const sent: Parameters<NotificationTransport["send"]>[0][] = [];
+    await sendNotification(reply.notification, {
+      async send(delivery) {
+        sent.push(delivery);
+      },
+      async archive() {},
+    });
+
+    expect(sent).toHaveLength(0);
   });
 });
 
