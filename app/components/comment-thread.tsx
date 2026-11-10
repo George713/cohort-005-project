@@ -132,6 +132,7 @@ function CommentActions({
   canEdit,
   canDelete,
   canReply,
+  deletePrompt,
   onEdit,
   onReply,
 }: {
@@ -139,6 +140,7 @@ function CommentActions({
   canEdit: boolean;
   canDelete: boolean;
   canReply: boolean;
+  deletePrompt: string;
   onEdit: () => void;
   onReply: () => void;
 }) {
@@ -170,7 +172,7 @@ function CommentActions({
         <deleteFetcher.Form
           method="post"
           onSubmit={(event) => {
-            if (!confirm("Delete this comment?")) event.preventDefault();
+            if (!confirm(deletePrompt)) event.preventDefault();
           }}
         >
           <input type="hidden" name="intent" value="delete-comment" />
@@ -277,8 +279,16 @@ function CommentItem({
             <CommentActions
               comment={comment}
               canEdit={isAuthor}
-              canDelete={isAuthor || canModerate}
+              // A Discussion Question's author can edit it but not delete it;
+              // only staff can. A Discussion Reply can be deleted by its
+              // author or by staff.
+              canDelete={isReply ? isAuthor || canModerate : canModerate}
               canReply={canPost && !isReply}
+              deletePrompt={
+                isReply
+                  ? "Delete this reply?"
+                  : "Delete this question? Its replies will be removed too."
+              }
               onEdit={() => setEditing(true)}
               onReply={() => setReplying(true)}
             />
@@ -347,7 +357,7 @@ export function CommentThread({
 }: {
   comments: RenderedComment[];
   currentUserId: number | null;
-  /** Owning instructor or admin — may delete anyone's comment. */
+  /** Owning instructor or admin — may delete any Discussion Question or Reply. */
   canModerate: boolean;
   canPost: boolean;
   instructorName: string;

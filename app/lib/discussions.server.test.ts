@@ -6,6 +6,7 @@ import {
   createComment,
   deleteComment,
   editComment,
+  getComment,
 } from "./discussions.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
@@ -219,7 +220,7 @@ describe("editing a comment", () => {
 
   it("refuses to edit a deleted comment", () => {
     const question = postQuestion();
-    const deleted = deleteComment(db, question.id, base.user.id, false);
+    const deleted = deleteComment(db, question.id, base.instructor.id, true);
     if (!deleted.ok) throw new Error(deleted.error);
 
     expect(
@@ -241,6 +242,18 @@ describe("editing a comment", () => {
 });
 
 describe("deleting a comment", () => {
+  it("refuses a Student deleting their own Discussion Question", () => {
+    const question = postQuestion();
+
+    expect(deleteComment(db, question.id, base.user.id, false)).toMatchObject({
+      ok: false,
+      status: 403,
+      error:
+        "Only this course's Instructor or a Platform Admin can delete a Discussion Question",
+    });
+    expect(getComment(db, question.id)?.deletedAt).toBeNull();
+  });
+
   it("lets the author delete their own Discussion Reply", () => {
     const question = postQuestion();
     const reply = createComment(
@@ -269,6 +282,51 @@ describe("deleting a comment", () => {
     expect(result.comment.deletedAt).not.toBeNull();
   });
 
+  it("lets the course's Instructor delete a Student's Discussion Reply", () => {
+    const question = postQuestion();
+    const reply = createComment(
+      db,
+      base.user.id,
+      lessonId,
+      question.id,
+      "A follow-up."
+    );
+    if (!reply.ok) throw new Error(reply.error);
+
+    const result = deleteComment(db, reply.comment.id, base.instructor.id, true);
+
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.comment.deletedAt).not.toBeNull();
+  });
+
+  it("removes a Discussion Question's Discussion Replies when staff delete it", () => {
+    const question = postQuestion();
+    const ben = addStudent("Ben");
+    const studentReply = createComment(
+      db,
+      ben.id,
+      lessonId,
+      question.id,
+      "A student's answer."
+    );
+    const staffReply = createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      question.id,
+      "The Instructor's answer."
+    );
+    if (!studentReply.ok) throw new Error(studentReply.error);
+    if (!staffReply.ok) throw new Error(staffReply.error);
+
+    const result = deleteComment(db, question.id, base.instructor.id, true);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(getComment(db, studentReply.comment.id)?.deletedAt).not.toBeNull();
+    expect(getComment(db, staffReply.comment.id)?.deletedAt).not.toBeNull();
+  });
+
   it("lets a Platform Admin delete a Student's Discussion Question", () => {
     const admin = db
       .insert(schema.users)
@@ -280,12 +338,21 @@ describe("deleting a comment", () => {
       .returning()
       .get();
     const question = postQuestion();
+    const reply = createComment(
+      db,
+      base.user.id,
+      lessonId,
+      question.id,
+      "A follow-up."
+    );
+    if (!reply.ok) throw new Error(reply.error);
 
     const result = deleteComment(db, question.id, admin.id, true);
 
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) throw new Error(result.error);
     expect(result.comment.deletedAt).not.toBeNull();
+    expect(getComment(db, reply.comment.id)?.deletedAt).not.toBeNull();
   });
 
   it("refuses a Student deleting someone else's Discussion Question", () => {
@@ -295,13 +362,14 @@ describe("deleting a comment", () => {
     expect(deleteComment(db, question.id, ben.id, false)).toMatchObject({
       ok: false,
       status: 403,
-      error: "You can only delete your own comments",
+      error:
+        "Only this course's Instructor or a Platform Admin can delete a Discussion Question",
     });
   });
 
   it("does nothing when the comment is already deleted", () => {
     const question = postQuestion();
-    const first = deleteComment(db, question.id, base.user.id, false);
+    const first = deleteComment(db, question.id, base.instructor.id, true);
     if (!first.ok) throw new Error(first.error);
 
     const second = deleteComment(db, question.id, base.instructor.id, true);
