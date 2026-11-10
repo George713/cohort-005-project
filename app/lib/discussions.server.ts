@@ -14,7 +14,7 @@ import {
   MAX_COMMENT_LENGTH,
   MIN_COMMENT_LENGTH,
 } from "~/lib/comments";
-import type { Notification } from "~/lib/notifications.server";
+import type { ArchiveRequest, Notification } from "~/lib/notifications.server";
 
 // ─── Discussions ───
 // Everything about writing in a lesson's discussion: posting, editing and
@@ -44,6 +44,15 @@ export type CreateCommentResult =
       comment: Comment;
       /** The Notification the comment produced, if any. */
       notification: Notification | null;
+    }
+  | Failure;
+
+export type DeleteCommentResult =
+  | {
+      ok: true;
+      comment: Comment;
+      /** The Notifications this deletion retired, for the route to archive. */
+      archive: ArchiveRequest[];
     }
   | Failure;
 
@@ -215,7 +224,7 @@ export function deleteComment(
   commentId: number,
   userId: number,
   isStaff: boolean
-): CommentResult {
+): DeleteCommentResult {
   const existing = getComment(db, commentId);
   if (!existing) {
     return { ok: false, status: 404, error: "Comment not found" };
@@ -242,20 +251,37 @@ export function deleteComment(
   }
 
   if (existing.deletedAt !== null) {
-    return { ok: true, comment: existing };
+    return { ok: true, comment: existing, archive: [] };
   }
 
-  return db.transaction((tx): CommentResult => {
+  return db.transaction((tx): DeleteCommentResult => {
     const deletedAt = new Date().toISOString();
+    let archive: ArchiveRequest[];
 
     // A Discussion Question takes its Discussion Replies with it. They are
     // soft-deleted like any other comment, and the thread stops showing the
-    // question, so no placeholder is left behind.
+    // question, so no placeholder is left behind. Deleting any of them retires
+    // the Notifications that pointed at it.
     if (existing.parentId === null) {
+      const replies = tx
+        .select({ id: comments.id })
+        .from(comments)
+        .where(and(eq(comments.parentId, commentId), isNull(comments.deletedAt)))
+        .all();
+
       tx.update(comments)
         .set({ deletedAt })
         .where(and(eq(comments.parentId, commentId), isNull(comments.deletedAt)))
         .run();
+
+      archive = [
+        archiveDiscussionQuestionNotification(commentId),
+        ...replies.map((reply) =>
+          archiveDiscussionReplyNotification(reply.id)
+        ),
+      ];
+    } else {
+      archive = [archiveDiscussionReplyNotification(commentId)];
     }
 
     const comment = tx
@@ -265,6 +291,16 @@ export function deleteComment(
       .returning()
       .get();
 
-    return { ok: true, comment };
+    return { ok: true, comment, archive };
   });
+}
+
+function archiveDiscussionQuestionNotification(
+  commentId: number
+): ArchiveRequest {
+  return { workflow: "discussion-question-new", subjectId: commentId };
+}
+
+function archiveDiscussionReplyNotification(commentId: number): ArchiveRequest {
+  return { workflow: "discussion-reply-from-staff", subjectId: commentId };
 }

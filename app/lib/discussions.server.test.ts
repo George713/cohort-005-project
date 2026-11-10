@@ -354,6 +354,15 @@ describe("editing a comment", () => {
     expect(result.comment.editedAt).not.toBeNull();
   });
 
+  it("returns nothing to archive when a comment is edited", () => {
+    const question = postQuestion();
+
+    const result = editComment(db, question.id, base.user.id, "An edit.");
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result).not.toHaveProperty("archive");
+  });
+
   it("refuses an edit by anyone but the author", () => {
     const question = postQuestion();
 
@@ -450,6 +459,67 @@ describe("deleting a comment", () => {
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) throw new Error(result.error);
     expect(result.comment.deletedAt).not.toBeNull();
+  });
+
+  it("asks for a deleted Discussion Reply's staff-reply Notification to be archived", () => {
+    const question = postQuestion();
+    const reply = createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      question.id,
+      "The Instructor's answer."
+    );
+    if (!reply.ok) throw new Error(reply.error);
+
+    const result = deleteComment(db, reply.comment.id, base.instructor.id, true);
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.archive).toEqual([
+      {
+        workflow: "discussion-reply-from-staff",
+        subjectId: reply.comment.id,
+      },
+    ]);
+  });
+
+  it("asks for a deleted Discussion Question and every reply's Notification to be archived", () => {
+    const question = postQuestion();
+    const ben = addStudent("Ben");
+    const staffReply = createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      question.id,
+      "The Instructor's answer."
+    );
+    const studentReply = createComment(
+      db,
+      ben.id,
+      lessonId,
+      question.id,
+      "A student's answer."
+    );
+    if (!staffReply.ok) throw new Error(staffReply.error);
+    if (!studentReply.ok) throw new Error(studentReply.error);
+
+    const result = deleteComment(db, question.id, base.instructor.id, true);
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.archive).toHaveLength(3);
+    expect(result.archive).toEqual(
+      expect.arrayContaining([
+        { workflow: "discussion-question-new", subjectId: question.id },
+        {
+          workflow: "discussion-reply-from-staff",
+          subjectId: staffReply.comment.id,
+        },
+        {
+          workflow: "discussion-reply-from-staff",
+          subjectId: studentReply.comment.id,
+        },
+      ])
+    );
   });
 
   it("lets the course's Instructor delete a Student's Discussion Reply", () => {

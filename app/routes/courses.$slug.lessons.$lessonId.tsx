@@ -15,7 +15,10 @@ import {
   editComment,
   getComment,
 } from "~/lib/discussions.server";
-import { sendNotification } from "~/lib/notifications.server";
+import {
+  archiveNotifications,
+  sendNotification,
+} from "~/lib/notifications.server";
 import { db } from "~/db";
 import {
   categories,
@@ -876,6 +879,14 @@ export async function action({ params, request }: Route.ActionArgs) {
       }
       return { ok: false, error: result.error };
     }
+
+    // The Notifications that pointed at the deleted Discussion Question or
+    // Discussion Reply are finished business. Best effort: a failed archive
+    // never blocks the deletion.
+    await Promise.all(
+      result.archive.map((archive) => archiveNotifications(archive))
+    );
+
     return { ok: true };
   }
 
