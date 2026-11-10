@@ -407,6 +407,19 @@ describe("approving a Refund Request", () => {
     expect(result.email.subject).toBe("Refund approved — Test Course");
     expect(result.email.body).toContain("$79.00");
   });
+
+  it("asks for that Refund Request's opened Notifications to be archived", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    const result = approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.archive).toEqual({
+      workflow: "refund-request-opened",
+      subjectId: id,
+    });
+  });
 });
 
 describe("declining a Refund Request", () => {
@@ -447,6 +460,25 @@ describe("declining a Refund Request", () => {
     declineRefundRequest(db, id, platformAdmin.id, "Seats are in use.", NOW);
 
     expect(getSeatAvailability(db, getSeat(seats[0].id))).toBe("available");
+  });
+
+  it("asks for that Refund Request's opened Notifications to be archived", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    const result = declineRefundRequest(
+      db,
+      id,
+      platformAdmin.id,
+      "You finished the course.",
+      NOW
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.archive).toEqual({
+      workflow: "refund-request-opened",
+      subjectId: id,
+    });
   });
 });
 
