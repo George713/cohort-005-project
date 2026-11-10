@@ -162,6 +162,39 @@ describe("claiming a Seat", () => {
     });
   });
 
+  it("returns a seat-claimed Notification for the Team Admin, with the Team Licence and Team page", () => {
+    const teamAdmin = addLearner("Priya Shah");
+    const student = addLearner("Sam Lee");
+    const { purchase, seats } = buySeats(teamAdmin.id, 2);
+
+    const result = claimSeat(db, seats[0].code, student.id, "US");
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toEqual({
+      kind: "seat-claimed",
+      recipients: [teamAdmin.id],
+      actor: student.id,
+      subjectId: seats[0].id,
+      data: {
+        studentName: "Sam Lee",
+        courseTitle: base.course.title,
+        purchaseId: purchase.id,
+        url: "/team",
+      },
+    });
+  });
+
+  it("never addresses the Notification to the claiming Student", () => {
+    const teamAdmin = addLearner("Priya Shah");
+    const student = addLearner("Sam Lee");
+    const { seats } = buySeats(teamAdmin.id, 2);
+
+    const result = claimSeat(db, seats[0].code, student.id, "US");
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification.recipients).not.toContain(student.id);
+  });
+
   it("refuses a Seat another Student already claimed", () => {
     const { seats } = buySeats(addLearner("Priya").id, 2);
     claimSeat(db, seats[0].code, addLearner("Ben").id, "US");
