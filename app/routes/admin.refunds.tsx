@@ -22,6 +22,7 @@ import {
 } from "~/lib/refunds.server";
 import { RULE_BREAK_LABELS } from "~/lib/refund-rules";
 import { sendEmail } from "~/lib/mailer.server";
+import { sendNotification } from "~/lib/notifications.server";
 
 const refundFilterSchema = z
   .nativeEnum(RefundStatus)
@@ -128,6 +129,7 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   await sendEmail(result.email);
+  await sendNotification(result.notification);
 
   return {
     success: true,

@@ -1,5 +1,5 @@
 import { useRef, useEffect } from "react";
-import { useFetcher } from "react-router";
+import { useFetcher, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/settings";
@@ -15,13 +15,22 @@ import { AlertTriangle } from "lucide-react";
 import { data, isRouteErrorResponse, Link } from "react-router";
 import { db } from "~/db";
 import { eq } from "drizzle-orm";
-import { formatPrice } from "~/lib/utils";
+import { cn, formatPrice } from "~/lib/utils";
 import { listRefundRequestsForBuyer } from "~/lib/refunds.server";
 
 const settingsSchema = z.object({
   name: z.string().trim().min(1, "Name cannot be empty."),
   bio: z.string().trim().optional(),
 });
+
+// A decline Notification links to /settings?refundRequest=<id> so the page can
+// scroll to that entry and highlight it.
+const highlightedRefundRequestSchema = z.coerce
+  .number()
+  .int()
+  .positive()
+  .nullable()
+  .catch(null);
 
 export function meta() {
   return [
@@ -104,6 +113,17 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
   ).length;
   const fetcher = useFetcher();
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const [searchParams] = useSearchParams();
+  const highlightedRefundRequestId = highlightedRefundRequestSchema.parse(
+    searchParams.get("refundRequest")
+  );
+
+  useEffect(() => {
+    if (highlightedRefundRequestId === null) return;
+    document
+      .getElementById(`refund-request-${highlightedRefundRequestId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightedRefundRequestId]);
 
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.success) {
@@ -202,7 +222,15 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             {refundRequests.map((refundRequest) => (
-              <div key={refundRequest.id} className="rounded-md border p-3">
+              <div
+                key={refundRequest.id}
+                id={`refund-request-${refundRequest.id}`}
+                className={cn(
+                  "scroll-mt-24 rounded-md border p-3 transition-shadow",
+                  refundRequest.id === highlightedRefundRequestId &&
+                    "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                )}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <Link
                     to={`/courses/${refundRequest.courseSlug}`}
