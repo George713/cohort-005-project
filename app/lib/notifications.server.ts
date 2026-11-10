@@ -28,7 +28,7 @@ export type Notification = {
   /** The Cadence user id who caused it. They never receive their own action. */
   actor: number;
   /** The id of the thing later archived with this Notification. */
-  subjectId: number | string;
+  subjectId: number;
   /** Template data: the names, titles, decision note and url it needs. */
   data: Record<string, unknown>;
 };
@@ -37,28 +37,22 @@ export type NotificationRecipient = { id: string };
 
 /** A request to archive every recipient's copy of one subject's Notifications. */
 export type ArchiveRequest = {
-  workflow: NotificationKind;
-  subjectId: number | string;
+  kind: NotificationKind;
+  subjectId: number;
 };
 
 /** What a transport receives: ids only, ready for Knock. */
 export type NotificationDelivery = {
-  workflow: NotificationKind;
+  kind: NotificationKind;
   recipients: NotificationRecipient[];
   actor: NotificationRecipient;
   subjectId: string;
   data: Record<string, unknown>;
 };
 
-/** What an archive transport receives: the workflow and subject id, as strings. */
-export type NotificationArchive = {
-  workflow: NotificationKind;
-  subjectId: string;
-};
-
 export interface NotificationTransport {
   send(notification: NotificationDelivery): Promise<void>;
-  archive(archive: NotificationArchive): Promise<void>;
+  archive(archive: ArchiveRequest): Promise<void>;
 }
 
 const KNOCK_API_URL = "https://api.knock.app";
@@ -90,17 +84,18 @@ type KnockMessagePage = {
  */
 async function findKnockMessageIds(
   secretKey: string,
-  archive: NotificationArchive
+  archive: ArchiveRequest
 ): Promise<string[]> {
   const ids: string[] = [];
+  const subjectId = String(archive.subjectId);
   let after: string | null = null;
 
   do {
     const query = new URLSearchParams({
-      source: archive.workflow,
+      source: archive.kind,
       // Knock filters on the single-level trigger data the message was made
       // with, so sendNotification puts the subject id there too.
-      trigger_data: JSON.stringify({ subjectId: archive.subjectId }),
+      trigger_data: JSON.stringify({ subjectId }),
       page_size: String(KNOCK_PAGE_SIZE),
     });
     if (after) query.set("after", after);
@@ -111,7 +106,7 @@ async function findKnockMessageIds(
 
     if (!response.ok) {
       throw new Error(
-        `Knock rejected listing ${archive.workflow} messages: ${response.status}`
+        `Knock rejected listing ${archive.kind} messages: ${response.status}`
       );
     }
 
@@ -119,7 +114,7 @@ async function findKnockMessageIds(
 
     for (const message of page.items) {
       if (message.archived_at) continue;
-      if (String(message.data?.subjectId) !== archive.subjectId) continue;
+      if (String(message.data?.subjectId) !== subjectId) continue;
       ids.push(message.id);
     }
 
@@ -133,7 +128,7 @@ export function knockTransport(secretKey: string): NotificationTransport {
   return {
     async send(notification) {
       const response = await fetch(
-        `${KNOCK_API_URL}/v1/workflows/${notification.workflow}/trigger`,
+        `${KNOCK_API_URL}/v1/workflows/${notification.kind}/trigger`,
         {
           method: "POST",
           headers: knockHeaders(secretKey),
@@ -149,7 +144,7 @@ export function knockTransport(secretKey: string): NotificationTransport {
 
       if (!response.ok) {
         throw new Error(
-          `Knock rejected ${notification.workflow}: ${response.status}`
+          `Knock rejected ${notification.kind}: ${response.status}`
         );
       }
     },
@@ -169,7 +164,7 @@ export function knockTransport(secretKey: string): NotificationTransport {
 
       if (!response.ok) {
         throw new Error(
-          `Knock rejected archiving ${archive.workflow}: ${response.status}`
+          `Knock rejected archiving ${archive.kind}: ${response.status}`
         );
       }
     },
@@ -182,7 +177,7 @@ export function outboxTransport(directory: string): NotificationTransport {
       mkdirSync(directory, { recursive: true });
       const file = join(
         directory,
-        `${Date.now()}-${randomUUID()}-${notification.workflow}.json`
+        `${Date.now()}-${randomUUID()}-${notification.kind}.json`
       );
       writeFileSync(file, JSON.stringify(notification, null, 2));
     },
@@ -191,7 +186,7 @@ export function outboxTransport(directory: string): NotificationTransport {
       mkdirSync(directory, { recursive: true });
       const file = join(
         directory,
-        `${Date.now()}-${randomUUID()}-${archive.workflow}-archived.json`
+        `${Date.now()}-${randomUUID()}-${archive.kind}-archived.json`
       );
       writeFileSync(
         file,
@@ -224,7 +219,7 @@ export async function sendNotification(
 
   try {
     await transport.send({
-      workflow: notification.kind,
+      kind: notification.kind,
       recipients: recipientIds,
       actor: { id: String(notification.actor) },
       subjectId: String(notification.subjectId),
@@ -248,13 +243,10 @@ export async function archiveNotifications(
   transport: NotificationTransport = defaultTransport()
 ): Promise<void> {
   try {
-    await transport.archive({
-      workflow: archive.workflow,
-      subjectId: String(archive.subjectId),
-    });
+    await transport.archive(archive);
   } catch (error) {
     console.error(
-      `Could not archive the ${archive.workflow} Notifications.`,
+      `Could not archive the ${archive.kind} Notifications.`,
       error
     );
   }
@@ -270,9 +262,12 @@ export type FeedConfig = {
 
 const FEED_TOKEN_LIFETIME_SECONDS = 12 * 60 * 60;
 
+let warnedAboutMissingFeedConfig = false;
+
 /**
  * What the browser needs to sign in to the current user's Notification Feed.
- * Null when Knock is not configured: no bell is better than a broken one.
+ * Null when Knock is not configured: the bell still shows, with no badge and
+ * an empty Feed, and the missing configuration is logged once.
  */
 export async function getFeedConfig(
   userId: number
@@ -281,7 +276,15 @@ export async function getFeedConfig(
   const signingKey = process.env.KNOCK_SIGNING_KEY;
   const feedChannelId = process.env.KNOCK_FEED_CHANNEL_ID;
 
-  if (!publicApiKey || !signingKey || !feedChannelId) return null;
+  if (!publicApiKey || !signingKey || !feedChannelId) {
+    if (!warnedAboutMissingFeedConfig) {
+      warnedAboutMissingFeedConfig = true;
+      console.warn(
+        "Knock is not configured (KNOCK_PUBLIC_API_KEY, KNOCK_SIGNING_KEY or KNOCK_FEED_CHANNEL_ID is missing); the Notification Feed will be empty."
+      );
+    }
+    return null;
+  }
 
   try {
     const userToken = await signUserToken(String(userId), {

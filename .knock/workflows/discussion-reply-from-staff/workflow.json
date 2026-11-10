@@ -1,6 +1,6 @@
 {
   "key": "discussion-reply-from-staff",
-  "name": "Staff Discussion Reply",
+  "name": "Discussion Reply from the Instructor or a Platform Admin",
   "description": "Tells the Student who asked a Discussion Question that the course's Instructor or a Platform Admin replied to it.",
   "trigger_frequency": "every_trigger",
   "steps": [
@@ -10,7 +10,7 @@
       "channel_key": "in-app-feed",
       "channel_type": "in_app_feed",
       "template": {
-        "markdown_body": "**{{ data.staffName }}** replied to your Discussion Question on **{{ data.lessonTitle }}** in **{{ data.courseTitle }}**.",
+        "markdown_body": "**{{ data.replierName }}** replied to your Discussion Question on **{{ data.lessonTitle }}** in **{{ data.courseTitle }}**.",
         "action_url": "{{ data.url }}"
       }
     }

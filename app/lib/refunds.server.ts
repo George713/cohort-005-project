@@ -603,12 +603,36 @@ export type DecisionResult =
     }
   | Failure;
 
+type DecisionContent = {
+  buyer: { name: string; email: string } | undefined;
+  courseTitle: string;
+};
+
+/** Everything both the decision email and Notification say about the Purchase. */
+function loadDecisionContent(
+  db: Queryable,
+  purchase: Purchase
+): DecisionContent {
+  const buyer = db
+    .select({ name: users.name, email: users.email })
+    .from(users)
+    .where(eq(users.id, purchase.userId))
+    .get();
+  const course = db
+    .select({ title: courses.title })
+    .from(courses)
+    .where(eq(courses.id, purchase.courseId))
+    .get();
+
+  return { buyer, courseTitle: course?.title ?? "your course" };
+}
+
 /**
  * Once a Refund Request is decided, no Platform Admin needs their copy of the
  * "new Open Refund Request" Notification any more — not even the decider's.
  */
 function archiveOpenedNotification(refundRequestId: number): ArchiveRequest {
-  return { workflow: "refund-request-opened", subjectId: refundRequestId };
+  return { kind: "refund-request-opened", subjectId: refundRequestId };
 }
 
 function findOpenRefundRequest(
@@ -718,11 +742,18 @@ export function approveRefundRequest(
       .where(eq(refunds.id, refundRequestId))
       .run();
 
+    const content = loadDecisionContent(tx, purchase);
+
     return {
       ok: true,
-      email: buildDecisionEmail(tx, purchase, RefundStatus.Approved, note),
+      email: buildDecisionEmail(
+        content,
+        purchase,
+        RefundStatus.Approved,
+        note
+      ),
       notification: buildDecisionNotification(
-        tx,
+        content,
         purchase,
         refundRequestId,
         platformAdminId,
@@ -770,16 +801,18 @@ export function declineRefundRequest(
       .where(eq(refunds.id, refundRequestId))
       .run();
 
+    const content = loadDecisionContent(tx, found.purchase);
+
     return {
       ok: true,
       email: buildDecisionEmail(
-        tx,
+        content,
         found.purchase,
         RefundStatus.Declined,
         trimmedNote
       ),
       notification: buildDecisionNotification(
-        tx,
+        content,
         found.purchase,
         refundRequestId,
         platformAdminId,
@@ -793,23 +826,11 @@ export function declineRefundRequest(
 
 /** The email the buyer gets once their Refund Request is decided. */
 function buildDecisionEmail(
-  db: Queryable,
+  { buyer, courseTitle }: DecisionContent,
   purchase: Purchase,
   decision: RefundStatus.Approved | RefundStatus.Declined,
   note: string | null
 ): Email {
-  const buyer = db
-    .select()
-    .from(users)
-    .where(eq(users.id, purchase.userId))
-    .get();
-  const course = db
-    .select()
-    .from(courses)
-    .where(eq(courses.id, purchase.courseId))
-    .get();
-
-  const courseTitle = course?.title ?? "your course";
   const noteLines = note ? ["", note] : [];
 
   const middle =
@@ -841,21 +862,15 @@ function buildDecisionEmail(
 
 /** The Notification the buyer gets once their Refund Request is decided. */
 function buildDecisionNotification(
-  db: Queryable,
+  { courseTitle }: DecisionContent,
   purchase: Purchase,
   refundRequestId: number,
   platformAdminId: number,
   decision: RefundStatus.Approved | RefundStatus.Declined,
   note: string | null
 ): Notification {
-  const course = db
-    .select()
-    .from(courses)
-    .where(eq(courses.id, purchase.courseId))
-    .get();
-
   const data: Record<string, unknown> = {
-    courseTitle: course?.title ?? "your course",
+    courseTitle,
     decisionNote: note,
   };
 

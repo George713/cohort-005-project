@@ -10,7 +10,9 @@ import {
   UserRole,
 } from "~/db/schema";
 import {
+  canDeleteComment,
   lessonCommentUrl,
+  lessonReplyUrl,
   MAX_COMMENT_LENGTH,
   MIN_COMMENT_LENGTH,
 } from "~/lib/comments";
@@ -173,10 +175,15 @@ export function createComment(
         actor: userId,
         subjectId: comment.id,
         data: {
-          staffName: author?.name ?? "Someone",
+          replierName: author?.name ?? "Someone",
           courseTitle: lesson.courseTitle,
           lessonTitle: lesson.title,
-          url: lessonCommentUrl(lesson.courseSlug, lessonId, comment.id),
+          url: lessonReplyUrl(
+            lesson.courseSlug,
+            lessonId,
+            parent.id,
+            comment.id
+          ),
         },
       };
     }
@@ -233,20 +240,19 @@ export function deleteComment(
   // A Discussion Question's author may edit it but not delete it: only the
   // course's Instructor or a Platform Admin can remove a question. A
   // Discussion Reply still belongs to its author (or staff).
-  if (existing.parentId === null) {
-    if (!isStaff) {
-      return {
-        ok: false,
-        status: 403,
-        error:
-          "Only this course's Instructor or a Platform Admin can delete a Discussion Question",
-      };
-    }
-  } else if (existing.userId !== userId && !isStaff) {
+  if (
+    !canDeleteComment(
+      { authorId: existing.userId, isReply: existing.parentId !== null },
+      { userId, isStaff }
+    )
+  ) {
     return {
       ok: false,
       status: 403,
-      error: "You can only delete your own comments",
+      error:
+        existing.parentId === null
+          ? "Only this course's Instructor or a Platform Admin can delete a Discussion Question"
+          : "You can only delete your own comments",
     };
   }
 
@@ -298,9 +304,9 @@ export function deleteComment(
 function archiveDiscussionQuestionNotification(
   commentId: number
 ): ArchiveRequest {
-  return { workflow: "discussion-question-new", subjectId: commentId };
+  return { kind: "discussion-question-new", subjectId: commentId };
 }
 
 function archiveDiscussionReplyNotification(commentId: number): ArchiveRequest {
-  return { workflow: "discussion-reply-from-staff", subjectId: commentId };
+  return { kind: "discussion-reply-from-staff", subjectId: commentId };
 }

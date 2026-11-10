@@ -130,6 +130,42 @@
   }
 }
 
+/* Knock's Notification Feed popover, styled to Design A: a card beside the
+   sidebar, about 24rem wide, growing with its rows and scrolling past 28rem. */
+.notification-feed .rnf-notification-feed-popover {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  max-height: 28rem;
+}
+
+.notification-feed .rnf-notification-feed-popover__inner {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  max-height: 28rem;
+  border: 1px solid var(--border);
+  background-color: var(--popover);
+  box-shadow:
+    0 20px 25px -5px rgb(0 0 0 / 0.1),
+    0 8px 10px -6px rgb(0 0 0 / 0.1);
+  filter: none;
+}
+
+.notification-feed .rnf-notification-feed {
+  height: auto;
+  max-height: 28rem;
+  min-height: 0;
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+}
+
+.notification-feed .rnf-notification-feed__container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* Navigation loading bar */
 @keyframes loading-bar-shimmer {
   0% {

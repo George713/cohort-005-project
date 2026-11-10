@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { createTestDb, seedBaseData } from "~/test/setup";
+import { addAdmin, addStudent, createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
-import { LessonProgressStatus, RefundStatus, UserRole } from "~/db/schema";
+import { LessonProgressStatus, RefundStatus } from "~/db/schema";
 import {
   approveRefundRequest,
   checkRefundRequest,
@@ -34,11 +34,7 @@ beforeEach(() => {
   db = createTestDb();
   base = seedBaseData(db);
 
-  platformAdmin = db
-    .insert(schema.users)
-    .values({ name: "Pat Admin", email: "pat@example.com", role: UserRole.Admin })
-    .returning()
-    .get();
+  platformAdmin = addAdmin(db, "Pat Admin");
 
   const module = db
     .insert(schema.modules)
@@ -55,18 +51,6 @@ beforeEach(() => {
         .get().id
   );
 });
-
-function addLearner(name: string) {
-  return db
-    .insert(schema.users)
-    .values({
-      name,
-      email: `${name.toLowerCase()}@example.com`,
-      role: UserRole.Student,
-    })
-    .returning()
-    .get();
-}
 
 function buyForSelf(userId: number, daysAgo = 3, amountPaid = 7900) {
   const purchase = db
@@ -167,15 +151,7 @@ describe("raising a Refund Request", () => {
   });
 
   it("returns a Notification for the new Open Refund Request to every Platform Admin", () => {
-    const secondAdmin = db
-      .insert(schema.users)
-      .values({
-        name: "Sam Admin",
-        email: "sam@example.com",
-        role: UserRole.Admin,
-      })
-      .returning()
-      .get();
+    const secondAdmin = addAdmin(db, "Sam Admin");
     const purchase = buyForSelf(base.user.id);
 
     const result = raiseRefundRequest(
@@ -208,7 +184,7 @@ describe("raising a Refund Request", () => {
 
   it("refuses anyone but the buyer", () => {
     const purchase = buyForSelf(base.user.id);
-    const someoneElse = addLearner("Ben");
+    const someoneElse = addStudent(db, "Ben");
 
     expect(checkRefundRequest(db, purchase.id, someoneElse.id, NOW)).toMatchObject(
       { ok: false, status: 404 }
@@ -226,7 +202,7 @@ describe("raising a Refund Request", () => {
 
   it("keeps the fourteenth day open and closes the fifteenth", () => {
     const onDay14 = buyForSelf(base.user.id, 14);
-    const onDay15 = buyForSelf(addLearner("Ben").id, 15);
+    const onDay15 = buyForSelf(addStudent(db, "Ben").id, 15);
 
     expect(checkRefundRequest(db, onDay14.id, onDay14.userId, NOW).ok).toBe(true);
     expect(
@@ -266,9 +242,9 @@ describe("raising a Refund Request", () => {
   });
 
   it("refuses a Team Licence with a Claimed Seat", () => {
-    const teamAdmin = addLearner("Priya");
+    const teamAdmin = addStudent(db, "Priya");
     const { purchase, seats } = buySeats(teamAdmin.id, 3);
-    claimSeat(seats[0].id, addLearner("Ben").id);
+    claimSeat(seats[0].id, addStudent(db, "Ben").id);
 
     expect(checkRefundRequest(db, purchase.id, teamAdmin.id, NOW)).toMatchObject({
       ok: false,
@@ -334,7 +310,7 @@ describe("approving a Refund Request", () => {
   });
 
   it("keeps the buyer's Enrollment if they also hold a Claimed Seat for the course", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { seats } = buySeats(priya.id, 2);
     // Liam claims a Seat first, so his Enrollment came from it.
     claimSeat(seats[0].id, base.user.id);
@@ -356,7 +332,7 @@ describe("approving a Refund Request", () => {
   });
 
   it("makes a Team Licence's Unclaimed Seats unclaimable", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { purchase, seats } = buySeats(priya.id, 2);
     const id = raise(purchase.id, priya.id);
 
@@ -369,11 +345,11 @@ describe("approving a Refund Request", () => {
   });
 
   it("refuses a Team Licence whose Seat was claimed after the request", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { purchase, seats } = buySeats(priya.id, 2);
     const id = raise(purchase.id, priya.id);
     // Seats are on hold while Open, but older data can still hold a claim.
-    claimSeat(seats[0].id, addLearner("Ben").id);
+    claimSeat(seats[0].id, addStudent(db, "Ben").id);
 
     expect(approveRefundRequest(db, id, platformAdmin.id, null, NOW)).toMatchObject({
       ok: false,
@@ -422,7 +398,7 @@ describe("approving a Refund Request", () => {
   });
 
   it("returns the approved Notification to a Team Licence's Team Admin", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { purchase } = buySeats(priya.id, 2);
     const id = raise(purchase.id, priya.id);
 
@@ -461,7 +437,7 @@ describe("approving a Refund Request", () => {
 
     if (!result.ok) throw new Error(result.error);
     expect(result.archive).toEqual({
-      workflow: "refund-request-opened",
+      kind: "refund-request-opened",
       subjectId: id,
     });
   });
@@ -523,7 +499,7 @@ describe("declining a Refund Request", () => {
   });
 
   it("returns the declined Notification to a Team Licence's Team Admin", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { purchase } = buySeats(priya.id, 2);
     const id = raise(purchase.id, priya.id);
 
@@ -550,7 +526,7 @@ describe("declining a Refund Request", () => {
   });
 
   it("frees a Team Licence's Seats again", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { purchase, seats } = buySeats(priya.id, 1);
     const id = raise(purchase.id, priya.id);
     expect(getSeatAvailability(db, getSeat(seats[0].id))).toBe("on_hold");
@@ -574,7 +550,7 @@ describe("declining a Refund Request", () => {
 
     if (!result.ok) throw new Error(result.error);
     expect(result.archive).toEqual({
-      workflow: "refund-request-opened",
+      kind: "refund-request-opened",
       subjectId: id,
     });
   });
@@ -612,7 +588,7 @@ describe("listing Refund Requests", () => {
   });
 
   it("shows a Team Licence's Seats instead of the buyer's progress", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { purchase } = buySeats(priya.id, 3);
     raise(purchase.id, priya.id);
 
@@ -627,7 +603,7 @@ describe("listing Refund Requests", () => {
 
   it("lists only the requested status, oldest first", () => {
     const first = buyForSelf(base.user.id);
-    const ben = addLearner("Ben");
+    const ben = addStudent(db, "Ben");
     const second = buyForSelf(ben.id);
     const firstId = raise(first.id, base.user.id);
     const secondId = raiseRefundRequest(
@@ -661,10 +637,10 @@ describe("listing Refund Requests", () => {
   });
 
   it("lists a Team Admin's Team Licences and whether each can be refunded", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     buySeats(priya.id, 2);
     const { seats } = buySeats(priya.id, 2);
-    claimSeat(seats[0].id, addLearner("Ben").id);
+    claimSeat(seats[0].id, addStudent(db, "Ben").id);
 
     expect(listTeamLicences(db, priya.id, NOW)).toMatchObject([
       { seatCount: 2, claimedSeatCount: 1, canRequestRefund: false },

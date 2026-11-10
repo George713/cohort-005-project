@@ -106,6 +106,42 @@ describe("the Knock templates workflow", () => {
   });
 });
 
+describe("the batched Notification templates", () => {
+  function template(workflow: string): string {
+    return read(`.knock/workflows/${workflow}/in_app_feed_1/markdown_body.md`);
+  }
+
+  it("names the latest Student and counts the others in a larger enrollment batch", () => {
+    const body = template("enrollment-new");
+
+    expect(body).toContain(
+      "**{{ data.studentName }}** enrolled in **{{ data.courseTitle }}**"
+    );
+    expect(body).toContain(
+      "**{{ firstStudent.data.studentName }}** and **{{ lastStudent.data.studentName }}** enrolled in **{{ data.courseTitle }}**"
+    );
+    expect(body).toContain(
+      "**{{ latestStudent.data.studentName }}** and {{ total_activities | minus: 1 }} others enrolled in **{{ data.courseTitle }}**"
+    );
+    expect(body).not.toContain("{{ total_activities }} others");
+  });
+
+  it("names the latest Student and counts the others in a larger seat batch", () => {
+    const body = template("seat-claimed");
+
+    expect(body).toContain(
+      "**{{ data.studentName }}** claimed a Seat on **{{ data.courseTitle }}**"
+    );
+    expect(body).toContain(
+      "**{{ activities[0].data.studentName }}** and **{{ activities[1].data.studentName }}** claimed Seats on **{{ data.courseTitle }}**"
+    );
+    expect(body).toContain(
+      "**{{ data.studentName }}** and {{ total_activities | minus: 1 }} others claimed Seats on **{{ data.courseTitle }}**"
+    );
+    expect(body).not.toContain("{{ total_activities }} others");
+  });
+});
+
 describe("the Knock production setup wizard", () => {
   const wizard = read(WIZARD_PATH);
 

@@ -1,17 +1,19 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTestDb, seedBaseData } from "~/test/setup";
+import {
+  addAdmin,
+  addStudent,
+  createTestDb,
+  fakeNotificationTransport,
+  seedBaseData,
+} from "~/test/setup";
 import * as schema from "~/db/schema";
-import { UserRole } from "~/db/schema";
 import {
   createComment,
   deleteComment,
   editComment,
   getComment,
 } from "./discussions.server";
-import {
-  sendNotification,
-  type NotificationTransport,
-} from "./notifications.server";
+import { sendNotification } from "./notifications.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
 
@@ -42,30 +44,6 @@ beforeEach(() => {
     .returning()
     .get().id;
 });
-
-function addStudent(name: string) {
-  return db
-    .insert(schema.users)
-    .values({
-      name,
-      email: `${name.toLowerCase()}@example.com`,
-      role: UserRole.Student,
-    })
-    .returning()
-    .get();
-}
-
-function addAdmin(name: string) {
-  return db
-    .insert(schema.users)
-    .values({
-      name,
-      email: `${name.toLowerCase()}@example.com`,
-      role: UserRole.Admin,
-    })
-    .returning()
-    .get();
-}
 
 function postQuestion(lesson = lessonId, body = "How do hooks work?") {
   const result = createComment(db, base.user.id, lesson, null, body);
@@ -252,17 +230,17 @@ describe("notifying the asking Student of a staff Discussion Reply", () => {
       actor: base.instructor.id,
       subjectId: result.comment.id,
       data: {
-        staffName: base.instructor.name,
+        replierName: base.instructor.name,
         courseTitle: base.course.title,
         lessonTitle: "Lesson 1",
-        url: `/courses/test-course/lessons/${lessonId}#comment-${result.comment.id}`,
+        url: `/courses/test-course/lessons/${lessonId}?reply=${result.comment.id}#comment-${question.id}`,
       },
     });
   });
 
   it("tells the Discussion Question's author when a Platform Admin replies", () => {
     const question = postQuestion();
-    const admin = addAdmin("Pat Admin");
+    const admin = addAdmin(db, "Pat Admin");
 
     const result = createComment(
       db,
@@ -279,17 +257,17 @@ describe("notifying the asking Student of a staff Discussion Reply", () => {
       actor: admin.id,
       subjectId: result.comment.id,
       data: {
-        staffName: admin.name,
+        replierName: admin.name,
         courseTitle: base.course.title,
         lessonTitle: "Lesson 1",
-        url: `/courses/test-course/lessons/${lessonId}#comment-${result.comment.id}`,
+        url: `/courses/test-course/lessons/${lessonId}?reply=${result.comment.id}#comment-${question.id}`,
       },
     });
   });
 
   it("sends nothing when another Student replies", () => {
     const question = postQuestion();
-    const ben = addStudent("Ben");
+    const ben = addStudent(db, "Ben");
 
     const result = createComment(
       db,
@@ -323,13 +301,8 @@ describe("notifying the asking Student of a staff Discussion Reply", () => {
     if (!reply.ok) throw new Error(reply.error);
     if (!reply.notification) throw new Error("Expected a Notification value.");
 
-    const sent: Parameters<NotificationTransport["send"]>[0][] = [];
-    await sendNotification(reply.notification, {
-      async send(delivery) {
-        sent.push(delivery);
-      },
-      async archive() {},
-    });
+    const { sent, transport } = fakeNotificationTransport();
+    await sendNotification(reply.notification, transport);
 
     expect(sent).toHaveLength(0);
   });
@@ -477,7 +450,7 @@ describe("deleting a comment", () => {
     if (!result.ok) throw new Error(result.error);
     expect(result.archive).toEqual([
       {
-        workflow: "discussion-reply-from-staff",
+        kind: "discussion-reply-from-staff",
         subjectId: reply.comment.id,
       },
     ]);
@@ -485,7 +458,7 @@ describe("deleting a comment", () => {
 
   it("asks for a deleted Discussion Question and every reply's Notification to be archived", () => {
     const question = postQuestion();
-    const ben = addStudent("Ben");
+    const ben = addStudent(db, "Ben");
     const staffReply = createComment(
       db,
       base.instructor.id,
@@ -509,13 +482,13 @@ describe("deleting a comment", () => {
     expect(result.archive).toHaveLength(3);
     expect(result.archive).toEqual(
       expect.arrayContaining([
-        { workflow: "discussion-question-new", subjectId: question.id },
+        { kind: "discussion-question-new", subjectId: question.id },
         {
-          workflow: "discussion-reply-from-staff",
+          kind: "discussion-reply-from-staff",
           subjectId: staffReply.comment.id,
         },
         {
-          workflow: "discussion-reply-from-staff",
+          kind: "discussion-reply-from-staff",
           subjectId: studentReply.comment.id,
         },
       ])
@@ -542,7 +515,7 @@ describe("deleting a comment", () => {
 
   it("removes a Discussion Question's Discussion Replies when staff delete it", () => {
     const question = postQuestion();
-    const ben = addStudent("Ben");
+    const ben = addStudent(db, "Ben");
     const studentReply = createComment(
       db,
       ben.id,
@@ -568,15 +541,7 @@ describe("deleting a comment", () => {
   });
 
   it("lets a Platform Admin delete a Student's Discussion Question", () => {
-    const admin = db
-      .insert(schema.users)
-      .values({
-        name: "Pat Admin",
-        email: "pat@example.com",
-        role: UserRole.Admin,
-      })
-      .returning()
-      .get();
+    const admin = addAdmin(db, "Pat Admin");
     const question = postQuestion();
     const reply = createComment(
       db,
@@ -597,7 +562,7 @@ describe("deleting a comment", () => {
 
   it("refuses a Student deleting someone else's Discussion Question", () => {
     const question = postQuestion();
-    const ben = addStudent("Ben");
+    const ben = addStudent(db, "Ben");
 
     expect(deleteComment(db, question.id, ben.id, false)).toMatchObject({
       ok: false,

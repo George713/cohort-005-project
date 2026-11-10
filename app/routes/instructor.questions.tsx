@@ -175,7 +175,10 @@ export async function action({ request }: Route.ActionArgs) {
     parsed.data.body
   );
   if (!result.ok) {
-    return { ok: false, error: result.error };
+    if (result.status === 400) {
+      return { ok: false, error: result.error };
+    }
+    throw data(result.error, { status: result.status });
   }
 
   // Replying from the queue tells the asking Student exactly as replying on the
