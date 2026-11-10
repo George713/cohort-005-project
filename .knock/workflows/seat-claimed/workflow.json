@@ -1,0 +1,36 @@
+{
+  "key": "seat-claimed",
+  "name": "Seat claimed",
+  "description": "Tells the Team Admin that a Student claimed a Seat on their Team Licence.",
+  "trigger_frequency": "every_trigger",
+  "steps": [
+    {
+      "ref": "batch_1",
+      "type": "batch",
+      "name": "Batch claims on the same Team Licence",
+      "description": "One row per Team Licence per hour, with the first claim flushed live.",
+      "settings": {
+        "batch_execution_mode": "flush_leading",
+        "batch_key": "purchaseId",
+        "batch_order": "asc",
+        "batch_window_type": "fixed",
+        "batch_window": {
+          "unit": "hours",
+          "value": 1
+        },
+        "workflow_version_mode": "latest"
+      }
+    },
+    {
+      "ref": "in_app_feed_1",
+      "type": "channel",
+      "channel_key": "in-app-feed",
+      "channel_type": "in_app_feed",
+      "name": "In-app feed",
+      "template": {
+        "markdown_body@": "in_app_feed_1/markdown_body.md",
+        "action_url": "{{ data.url }}"
+      }
+    }
+  ]
+}

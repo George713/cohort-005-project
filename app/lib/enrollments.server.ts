@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
-import { coupons, courses, enrollments, purchases } from "~/db/schema";
+import { coupons, courses, enrollments, purchases, users } from "~/db/schema";
+import type { Notification } from "~/lib/notifications.server";
 import { getSeatAvailability } from "~/lib/refunds.server";
 
 // ─── Enrollment and Seat claim ───
@@ -81,7 +82,9 @@ export function enrollFromIndividualPurchase(
   return { ok: true, purchase, enrollment };
 }
 
-export type SeatClaim = { ok: true; enrollment: Enrollment } | Failure;
+export type SeatClaim =
+  | { ok: true; enrollment: Enrollment; notification: Notification }
+  | Failure;
 
 export const SEAT_ON_HOLD =
   "This seat can't be claimed right now. Ask the person who shared it with you.";
@@ -132,12 +135,36 @@ export function claimSeat(
     .where(eq(purchases.id, seat.purchaseId))
     .get();
 
-  if (purchase?.country && purchase.country !== studentCountry) {
+  if (!purchase) {
+    return { ok: false, error: "Coupon not found" };
+  }
+
+  if (purchase.country && purchase.country !== studentCountry) {
     return {
       ok: false,
       error:
         "This coupon can only be redeemed from the same country as the purchaser",
     };
+  }
+
+  const student = db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, studentId))
+    .get();
+
+  if (!student) {
+    return { ok: false, error: "Student not found" };
+  }
+
+  const course = db
+    .select({ title: courses.title })
+    .from(courses)
+    .where(eq(courses.id, seat.courseId))
+    .get();
+
+  if (!course) {
+    return { ok: false, error: "Course not found" };
   }
 
   db.update(coupons)
@@ -154,5 +181,20 @@ export function claimSeat(
     .returning()
     .get();
 
-  return { ok: true, enrollment };
+  return {
+    ok: true,
+    enrollment,
+    notification: {
+      kind: "seat-claimed",
+      recipients: [purchase.userId],
+      actor: studentId,
+      subjectId: seat.id,
+      data: {
+        studentName: student.name,
+        courseTitle: course.title,
+        purchaseId: purchase.id,
+        url: "/team",
+      },
+    },
+  };
 }

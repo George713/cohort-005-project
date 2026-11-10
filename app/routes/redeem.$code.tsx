@@ -12,6 +12,7 @@ import {
   SEAT_ON_HOLD,
   SEAT_REFUNDED,
 } from "~/lib/enrollments.server";
+import { sendNotification } from "~/lib/notifications.server";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Ticket, AlertCircle, CheckCircle2, Globe } from "lucide-react";
@@ -131,6 +132,8 @@ export async function action({ params, request }: Route.ActionArgs) {
   if (!result.ok) {
     return data({ error: result.error }, { status: 400 });
   }
+
+  await sendNotification(result.notification);
 
   const course = getCourseById(result.enrollment.courseId);
   if (!course) {
