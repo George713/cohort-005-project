@@ -15,6 +15,7 @@ import {
   editComment,
   getComment,
 } from "~/lib/discussions.server";
+import { sendNotification } from "~/lib/notifications.server";
 import { db } from "~/db";
 import {
   categories,
@@ -821,6 +822,9 @@ export async function action({ params, request }: Route.ActionArgs) {
       );
       if (!result.ok) {
         return { ok: false, error: result.error };
+      }
+      if (result.notification) {
+        await sendNotification(result.notification);
       }
       return { ok: true };
     }
