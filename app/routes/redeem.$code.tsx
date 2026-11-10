@@ -133,7 +133,9 @@ export async function action({ params, request }: Route.ActionArgs) {
     return data({ error: result.error }, { status: 400 });
   }
 
-  await sendNotification(result.notification);
+  for (const notification of result.notifications) {
+    await sendNotification(notification);
+  }
 
   const course = getCourseById(result.enrollment.courseId);
   if (!course) {
