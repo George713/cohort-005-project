@@ -38,7 +38,7 @@ _Avoid_: Viewed, Progress
 ### Discussions
 
 **Discussion Question**:
-A top-level comment on a lesson by anyone other than the course's Instructor.
+A top-level comment on a lesson by anyone other than the course's Instructor. Its author can edit it but not delete it; only the course's Instructor or a Platform Admin can delete it, which removes its Discussion Replies too.
 _Avoid_: Question (on its own, which clashes with quiz questions), Thread
 
 **Discussion Reply**:
