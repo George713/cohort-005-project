@@ -108,14 +108,14 @@ export function clearChoice(file: string): void {
 }
 
 /** Ctrl+C at any prompt leaves without starting a server. */
-function stopIfCancelled<T>(value: T | symbol): T {
+function stopIfCancelled<T>(value: T | symbol): Exclude<T, symbol> {
   if (isCancel(value)) {
     // The saved answer is not mentioned. A student who leaves does not need a
     // report on a file they never asked for.
     cancel("No problem. Nothing was started.");
     process.exit(0);
   }
-  return value as T;
+  return value as Exclude<T, symbol>;
 }
 
 /**
