@@ -10,6 +10,11 @@ import {
   SEAT_ON_HOLD,
   SEAT_REFUNDED,
 } from "./enrollments.server";
+import {
+  sendNotification,
+  type NotificationDelivery,
+  type NotificationTransport,
+} from "./notifications.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
 
@@ -77,6 +82,16 @@ function purchaseCount() {
   return db.select().from(schema.purchases).all().length;
 }
 
+function collectDeliveries() {
+  const deliveries: NotificationDelivery[] = [];
+  const transport: NotificationTransport = {
+    async send(delivery) {
+      deliveries.push(delivery);
+    },
+  };
+  return { deliveries, transport };
+}
+
 function buySeats(teamAdminId: number, seats: number, country = "US") {
   const team = db.insert(schema.teams).values({}).returning().get();
   const purchase = db
@@ -128,6 +143,38 @@ describe("an Individual Purchase", () => {
     expect(isEnrolled(base.user.id)).toBe(true);
   });
 
+  it("returns a new-Enrollment Notification for the course's Instructor", () => {
+    const result = buyForSelf(base.user.id);
+
+    expect(result.notification).toMatchObject({
+      kind: "enrollment-new",
+      recipients: [base.instructor.id],
+      actor: base.user.id,
+      data: {
+        studentName: base.user.name,
+        courseId: base.course.id,
+        courseTitle: base.course.title,
+      },
+    });
+    expect(result.notification.data).not.toHaveProperty("url");
+  });
+
+  it("notifies nobody when the Instructor buys their own course", async () => {
+    const result = enrollFromIndividualPurchase(
+      db,
+      base.instructor.id,
+      base.course.id,
+      7900,
+      "US"
+    );
+    if (!result.ok) throw new Error(result.error);
+    const { deliveries, transport } = collectDeliveries();
+
+    await sendNotification(result.notification, transport);
+
+    expect(deliveries).toHaveLength(0);
+  });
+
   it("refuses a buyer who is already enrolled, recording no Purchase", () => {
     buyForSelf(base.user.id);
 
@@ -160,6 +207,25 @@ describe("claiming a Seat", () => {
     expect(getSeat(seats[0].id)).toMatchObject({
       redeemedByUserId: base.user.id,
     });
+  });
+
+  it("returns a new-Enrollment Notification for the course's Instructor", () => {
+    const { seats } = buySeats(addLearner("Priya").id, 2);
+
+    const result = claimSeat(db, seats[0].code, base.user.id, "US");
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toMatchObject({
+      kind: "enrollment-new",
+      recipients: [base.instructor.id],
+      actor: base.user.id,
+      data: {
+        studentName: base.user.name,
+        courseId: base.course.id,
+        courseTitle: base.course.title,
+      },
+    });
+    expect(result.notification.data).not.toHaveProperty("url");
   });
 
   it("refuses a Seat another Student already claimed", () => {

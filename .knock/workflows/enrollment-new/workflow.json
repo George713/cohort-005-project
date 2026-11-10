@@ -1,0 +1,33 @@
+{
+  "key": "enrollment-new",
+  "name": "New Enrollment",
+  "description": "Tells the course's Instructor that a Student enrolled, batched hourly per course.",
+  "trigger_frequency": "every_trigger",
+  "steps": [
+    {
+      "ref": "batch_1",
+      "type": "batch",
+      "settings": {
+        "batch_execution_mode": "flush_leading",
+        "batch_key": "courseId",
+        "batch_order": "desc",
+        "batch_window_type": "fixed",
+        "batch_window": {
+          "unit": "hours",
+          "value": 1
+        },
+        "workflow_version_mode": "latest"
+      }
+    },
+    {
+      "ref": "in_app_feed_1",
+      "type": "channel",
+      "channel_key": "in-app-feed",
+      "channel_type": "in_app_feed",
+      "template": {
+        "markdown_body@": "in_app_feed_1/markdown_body.md",
+        "action_url": ""
+      }
+    }
+  ]
+}

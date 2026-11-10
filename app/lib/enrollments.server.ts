@@ -1,8 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
-import { coupons, courses, enrollments, purchases } from "~/db/schema";
+import { coupons, courses, enrollments, purchases, users } from "~/db/schema";
 import { getSeatAvailability } from "~/lib/refunds.server";
+import type { Notification } from "~/lib/notifications.server";
 
 // ─── Enrollment and Seat claim ───
 // The two ways a Student gets an Enrollment: buying a course for themselves
@@ -23,8 +24,43 @@ type Enrollment = typeof enrollments.$inferSelect;
 export type Failure = { ok: false; error: string };
 
 export type PurchaseEnrollment =
-  | { ok: true; purchase: Purchase; enrollment: Enrollment }
+  | {
+      ok: true;
+      purchase: Purchase;
+      enrollment: Enrollment;
+      notification: Notification;
+    }
   | Failure;
+
+/**
+ * The Instructor's "new Enrollment" Notification. It has no destination and
+ * carries the course id so Knock can batch per course, and the Student's name
+ * so the batched row can name them.
+ */
+function buildEnrollmentNotification(
+  db: Queryable,
+  studentId: number,
+  course: { id: number; title: string; instructorId: number },
+  enrollmentId: number
+): Notification {
+  const student = db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, studentId))
+    .get();
+
+  return {
+    kind: "enrollment-new",
+    recipients: [course.instructorId],
+    actor: studentId,
+    subjectId: enrollmentId,
+    data: {
+      studentName: student?.name ?? "A student",
+      courseId: course.id,
+      courseTitle: course.title,
+    },
+  };
+}
 
 function findEnrollment(
   db: Queryable,
@@ -57,7 +93,11 @@ export function enrollFromIndividualPurchase(
   }
 
   const course = db
-    .select({ id: courses.id })
+    .select({
+      id: courses.id,
+      title: courses.title,
+      instructorId: courses.instructorId,
+    })
     .from(courses)
     .where(eq(courses.id, courseId))
     .get();
@@ -78,10 +118,22 @@ export function enrollFromIndividualPurchase(
     .returning()
     .get();
 
-  return { ok: true, purchase, enrollment };
+  return {
+    ok: true,
+    purchase,
+    enrollment,
+    notification: buildEnrollmentNotification(
+      db,
+      buyerId,
+      course,
+      enrollment.id
+    ),
+  };
 }
 
-export type SeatClaim = { ok: true; enrollment: Enrollment } | Failure;
+export type SeatClaim =
+  | { ok: true; enrollment: Enrollment; notification: Notification }
+  | Failure;
 
 export const SEAT_ON_HOLD =
   "This seat can't be claimed right now. Ask the person who shared it with you.";
@@ -140,6 +192,20 @@ export function claimSeat(
     };
   }
 
+  const course = db
+    .select({
+      id: courses.id,
+      title: courses.title,
+      instructorId: courses.instructorId,
+    })
+    .from(courses)
+    .where(eq(courses.id, seat.courseId))
+    .get();
+
+  if (!course) {
+    return { ok: false, error: "Course not found." };
+  }
+
   db.update(coupons)
     .set({
       redeemedByUserId: studentId,
@@ -154,5 +220,14 @@ export function claimSeat(
     .returning()
     .get();
 
-  return { ok: true, enrollment };
+  return {
+    ok: true,
+    enrollment,
+    notification: buildEnrollmentNotification(
+      db,
+      studentId,
+      course,
+      enrollment.id
+    ),
+  };
 }
