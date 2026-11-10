@@ -1,8 +1,8 @@
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
 import { and, desc, eq } from "drizzle-orm";
-import { bookmarks, courses, lessons, modules } from "~/db/schema";
-import { savedLessonColumns } from "~/lib/saved-lesson.server";
+import { bookmarks } from "~/db/schema";
+import { joinSavedLesson, savedLessonColumns } from "~/lib/saved-lesson.server";
 
 // ─── Bookmarks ───
 // A Student's flag on a Lesson, so they can find it again. One per Student per
@@ -58,16 +58,15 @@ export function toggleBookmark(
 
 /** The Student's Bookmarks, newest first, each with its Lesson and Course. */
 export function listBookmarks(db: Db, studentId: number) {
-  return db
+  const query = db
     .select({
       id: bookmarks.id,
       createdAt: bookmarks.createdAt,
       lesson: savedLessonColumns,
     })
     .from(bookmarks)
-    .innerJoin(lessons, eq(lessons.id, bookmarks.lessonId))
-    .innerJoin(modules, eq(modules.id, lessons.moduleId))
-    .innerJoin(courses, eq(courses.id, modules.courseId))
+    .$dynamic();
+  return joinSavedLesson(query, bookmarks.lessonId)
     .where(eq(bookmarks.userId, studentId))
     .orderBy(desc(bookmarks.createdAt), desc(bookmarks.id))
     .all();

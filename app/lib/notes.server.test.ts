@@ -80,16 +80,42 @@ describe("saving a Note", () => {
   it("refuses a Note over 2000 characters", () => {
     expect(saveNote(db, base.user.id, lessonIds[0], "a".repeat(2001), NOW)).toEqual({
       ok: false,
-      error: "Note must be 2000 characters or fewer",
+      error: "Your note is over 2,000 characters, so it was not saved.",
     });
     expect(getNote(db, base.user.id, lessonIds[0])).toBeUndefined();
   });
 
-  it("refuses a Note that is only whitespace", () => {
+  it("removes the Note when the note box is saved empty", () => {
+    saveNote(db, base.user.id, lessonIds[0], "First thought", NOW);
+
     expect(saveNote(db, base.user.id, lessonIds[0], "   ", NOW)).toEqual({
-      ok: false,
-      error: "Write something before saving your note",
+      ok: true,
+      note: null,
     });
+    expect(getNote(db, base.user.id, lessonIds[0])).toBeUndefined();
+    expect(listNotes(db, base.user.id)).toEqual([]);
+  });
+
+  it("writes nothing when an empty note box is saved on a Lesson with no Note", () => {
+    saveNote(db, base.user.id, lessonIds[0], "", NOW);
+
+    expect(getNote(db, base.user.id, lessonIds[0])).toBeUndefined();
+  });
+
+  it("removes only that Student's Note on that Lesson", () => {
+    const other = db
+      .insert(schema.users)
+      .values({ name: "Other", email: "other@example.com", role: UserRole.Student })
+      .returning()
+      .get();
+    saveNote(db, base.user.id, lessonIds[0], "Mine, lesson 1", NOW);
+    saveNote(db, base.user.id, lessonIds[1], "Mine, lesson 2", NOW);
+    saveNote(db, other.id, lessonIds[0], "Theirs, lesson 1", NOW);
+
+    saveNote(db, base.user.id, lessonIds[0], "", NOW);
+
+    expect(getNote(db, base.user.id, lessonIds[1])?.body).toBe("Mine, lesson 2");
+    expect(getNote(db, other.id, lessonIds[0])?.body).toBe("Theirs, lesson 1");
   });
 
   it("keeps the body exactly as typed, Markdown characters included", () => {
