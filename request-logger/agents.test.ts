@@ -15,6 +15,10 @@ import {
 
 const PORT = { port: 8787, platform: "linux" as NodeJS.Platform };
 
+// The command-template tests exercise POSIX shell quoting. POSIX systems have
+// /bin/sh; Windows contributors have Git Bash, which provides `bash`.
+const SHELL = process.platform === "win32" ? "bash" : "/bin/sh";
+
 /** Resolve, and fail loudly if the answer was not a usable target. */
 function target(agent: string, provider?: string) {
   const result = resolveChoice({ agent, provider }, PORT);
@@ -1085,7 +1089,7 @@ describe("resolveChoice — custom base URL, per-agent command template", () => 
     });
     const assignment = result.command.slice(0, -" opencode".length);
     const serialized = execFileSync(
-      "/bin/sh",
+      SHELL,
       [
         "-c",
         `${assignment} node -e 'process.stdout.write(process.env.OPENCODE_CONFIG_CONTENT)'`,
@@ -1116,7 +1120,7 @@ describe("resolveChoice — custom base URL, per-agent command template", () => 
     });
     const assignment = result.command.slice(0, -" opencode".length);
     const serialized = execFileSync(
-      "/bin/sh",
+      SHELL,
       [
         "-c",
         `${assignment} node -e 'process.stdout.write(process.env.OPENCODE_CONFIG_CONTENT)'`,
