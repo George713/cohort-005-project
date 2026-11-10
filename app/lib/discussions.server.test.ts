@@ -71,6 +71,43 @@ describe("creating a comment", () => {
     });
   });
 
+  it("returns a discussion-question-new Notification to the course's Instructor", () => {
+    const result = createComment(
+      db,
+      base.user.id,
+      lessonId,
+      null,
+      "How do hooks work?"
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toMatchObject({
+      kind: "discussion-question-new",
+      recipients: [base.instructor.id],
+      actor: base.user.id,
+      subjectId: result.comment.id,
+      data: {
+        studentName: base.user.name,
+        courseTitle: base.course.title,
+        lessonTitle: "Lesson 1",
+        url: `/courses/test-course/lessons/${lessonId}#comment-${result.comment.id}`,
+      },
+    });
+  });
+
+  it("sends no discussion-question-new Notification for the Instructor's own top-level comment", () => {
+    const result = createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      null,
+      "Welcome to the course!"
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toBeNull();
+  });
+
   it("posts a Discussion Reply to a Discussion Question", () => {
     const question = postQuestion();
 
@@ -90,6 +127,21 @@ describe("creating a comment", () => {
         body: "Hooks let you reuse stateful logic.",
       },
     });
+  });
+
+  it("sends no discussion-question-new Notification for a Discussion Reply", () => {
+    const question = postQuestion();
+
+    const result = createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      question.id,
+      "Hooks let you reuse stateful logic."
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.notification).toBeNull();
   });
 
   it("refuses an empty comment", () => {
