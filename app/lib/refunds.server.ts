@@ -18,7 +18,7 @@ import {
   UserRole,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
-import type { Notification } from "~/lib/notifications.server";
+import type { ArchiveRequest, Notification } from "~/lib/notifications.server";
 import {
   REFUND_COMPLETION_LIMIT,
   REFUND_WATCH_LIMIT_SECONDS,
@@ -595,8 +595,21 @@ export function listTeamLicences(db: Queryable, buyerId: number, now: Date) {
 // ─── Deciding a Refund Request ───
 
 export type DecisionResult =
-  | { ok: true; email: Email; notification: Notification }
+  | {
+      ok: true;
+      email: Email;
+      notification: Notification;
+      archive: ArchiveRequest;
+    }
   | Failure;
+
+/**
+ * Once a Refund Request is decided, no Platform Admin needs their copy of the
+ * "new Open Refund Request" Notification any more — not even the decider's.
+ */
+function archiveOpenedNotification(refundRequestId: number): ArchiveRequest {
+  return { workflow: "refund-request-opened", subjectId: refundRequestId };
+}
 
 function findOpenRefundRequest(
   tx: Queryable,
@@ -716,6 +729,7 @@ export function approveRefundRequest(
         RefundStatus.Approved,
         note
       ),
+      archive: archiveOpenedNotification(refundRequestId),
     };
   });
 }
@@ -772,6 +786,7 @@ export function declineRefundRequest(
         RefundStatus.Declined,
         trimmedNote
       ),
+      archive: archiveOpenedNotification(refundRequestId),
     };
   });
 }
