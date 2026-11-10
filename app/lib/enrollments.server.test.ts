@@ -1,8 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { createTestDb, seedBaseData } from "~/test/setup";
+import {
+  addAdmin,
+  addStudent,
+  createTestDb,
+  fakeNotificationTransport,
+  seedBaseData,
+} from "~/test/setup";
 import * as schema from "~/db/schema";
-import { UserRole } from "~/db/schema";
 import { approveRefundRequest, raiseRefundRequest } from "./refunds.server";
 import {
   claimSeat,
@@ -10,12 +15,7 @@ import {
   SEAT_ON_HOLD,
   SEAT_REFUNDED,
 } from "./enrollments.server";
-import {
-  sendNotification,
-  type Notification,
-  type NotificationDelivery,
-  type NotificationTransport,
-} from "./notifications.server";
+import { sendNotification, type Notification } from "./notifications.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
 
@@ -35,24 +35,8 @@ beforeEach(() => {
   db = createTestDb();
   base = seedBaseData(db);
 
-  platformAdmin = db
-    .insert(schema.users)
-    .values({ name: "Pat Admin", email: "pat@example.com", role: UserRole.Admin })
-    .returning()
-    .get();
+  platformAdmin = addAdmin(db, "Pat Admin");
 });
-
-function addLearner(name: string) {
-  return db
-    .insert(schema.users)
-    .values({
-      name,
-      email: `${name.toLowerCase()}@example.com`,
-      role: UserRole.Student,
-    })
-    .returning()
-    .get();
-}
 
 function isEnrolled(userId: number) {
   return !!db
@@ -81,17 +65,6 @@ function buyForSelf(userId: number) {
 
 function purchaseCount() {
   return db.select().from(schema.purchases).all().length;
-}
-
-function collectDeliveries() {
-  const deliveries: NotificationDelivery[] = [];
-  const transport: NotificationTransport = {
-    async send(delivery) {
-      deliveries.push(delivery);
-    },
-    async archive() {},
-  };
-  return { deliveries, transport };
 }
 
 function notificationOfKind(
@@ -181,7 +154,7 @@ describe("an Individual Purchase", () => {
       "US"
     );
     if (!result.ok) throw new Error(result.error);
-    const { deliveries, transport } = collectDeliveries();
+    const { sent: deliveries, transport } = fakeNotificationTransport();
 
     await sendNotification(result.notification, transport);
 
@@ -206,7 +179,7 @@ describe("an Individual Purchase", () => {
 
 describe("claiming a Seat", () => {
   it("gives the Student an Enrollment and marks the Seat claimed", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { seats } = buySeats(priya.id, 2);
 
     const result = claimSeat(db, seats[0].code, base.user.id, "US");
@@ -223,8 +196,8 @@ describe("claiming a Seat", () => {
   });
 
   it("returns a seat-claimed Notification for the Team Admin, with the Team Licence and Team page", () => {
-    const teamAdmin = addLearner("Priya Shah");
-    const student = addLearner("Sam Lee");
+    const teamAdmin = addStudent(db, "Priya Shah");
+    const student = addStudent(db, "Sam Lee");
     const { purchase, seats } = buySeats(teamAdmin.id, 2);
 
     const result = claimSeat(db, seats[0].code, student.id, "US");
@@ -245,8 +218,8 @@ describe("claiming a Seat", () => {
   });
 
   it("never addresses the seat-claimed Notification to the claiming Student", () => {
-    const teamAdmin = addLearner("Priya Shah");
-    const student = addLearner("Sam Lee");
+    const teamAdmin = addStudent(db, "Priya Shah");
+    const student = addStudent(db, "Sam Lee");
     const { seats } = buySeats(teamAdmin.id, 2);
 
     const result = claimSeat(db, seats[0].code, student.id, "US");
@@ -258,7 +231,7 @@ describe("claiming a Seat", () => {
   });
 
   it("returns a new-Enrollment Notification for the course's Instructor", () => {
-    const { seats } = buySeats(addLearner("Priya").id, 2);
+    const { seats } = buySeats(addStudent(db, "Priya").id, 2);
 
     const result = claimSeat(db, seats[0].code, base.user.id, "US");
 
@@ -281,8 +254,8 @@ describe("claiming a Seat", () => {
   });
 
   it("returns both the seat-claimed and the new-Enrollment Notification", () => {
-    const teamAdmin = addLearner("Priya Shah");
-    const student = addLearner("Sam Lee");
+    const teamAdmin = addStudent(db, "Priya Shah");
+    const student = addStudent(db, "Sam Lee");
     const { seats } = buySeats(teamAdmin.id, 2);
 
     const result = claimSeat(db, seats[0].code, student.id, "US");
@@ -294,8 +267,8 @@ describe("claiming a Seat", () => {
   });
 
   it("refuses a Seat another Student already claimed", () => {
-    const { seats } = buySeats(addLearner("Priya").id, 2);
-    claimSeat(db, seats[0].code, addLearner("Ben").id, "US");
+    const { seats } = buySeats(addStudent(db, "Priya").id, 2);
+    claimSeat(db, seats[0].code, addStudent(db, "Ben").id, "US");
 
     const result = claimSeat(db, seats[0].code, base.user.id, "US");
 
@@ -310,7 +283,7 @@ describe("claiming a Seat", () => {
   });
 
   it("refuses while the Team Licence has an Open Refund Request", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { purchase, seats } = buySeats(priya.id, 2);
     raiseRefundRequest(db, purchase.id, priya.id, "We changed plans.", NOW);
 
@@ -322,7 +295,7 @@ describe("claiming a Seat", () => {
   });
 
   it("refuses once the Team Licence has been refunded", () => {
-    const priya = addLearner("Priya");
+    const priya = addStudent(db, "Priya");
     const { purchase, seats } = buySeats(priya.id, 2);
     const raised = raiseRefundRequest(
       db,
@@ -341,7 +314,7 @@ describe("claiming a Seat", () => {
   });
 
   it("refuses a Student who already has the course, leaving the Seat unclaimed", () => {
-    const { seats } = buySeats(addLearner("Priya").id, 2);
+    const { seats } = buySeats(addStudent(db, "Priya").id, 2);
     buyForSelf(base.user.id);
 
     const result = claimSeat(db, seats[0].code, base.user.id, "US");
@@ -354,7 +327,7 @@ describe("claiming a Seat", () => {
   });
 
   it("refuses a Student outside the buyer's country", () => {
-    const { seats } = buySeats(addLearner("Priya").id, 2, "US");
+    const { seats } = buySeats(addStudent(db, "Priya").id, 2, "US");
 
     const result = claimSeat(db, seats[0].code, base.user.id, "IN");
 

@@ -1,9 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { useNavigate } from "react-router";
 import {
+  FilterStatus,
   KnockFeedProvider,
   KnockProvider,
+  NotificationFeedPopover,
+  UnseenBadge,
   useKnockFeed,
+  type NotificationFeedHeaderProps,
+  type NotificationFeedProps,
 } from "@knocklabs/react";
 import { NetworkStatus, type FeedItem } from "@knocklabs/client";
 import {
@@ -13,19 +25,35 @@ import {
   UserPlus,
   UsersRound,
 } from "lucide-react";
-import { cn } from "~/lib/utils";
-import type { FeedConfig } from "~/lib/notifications.server";
+import { cn, formatRelativeTime } from "~/lib/utils";
+import type {
+  FeedConfig,
+  NotificationKind,
+} from "~/lib/notifications.server";
+import "@knocklabs/react/dist/index.css";
 
 // ─── Notification Feed ───
-// Knock's React feed, styled to the chosen prototype (Variant A): a bell beside
-// the Cadence logo with an unread badge, and a dropdown beside the sidebar.
-// Opening the dropdown never marks anything seen; only a row click or "Mark all
-// read" changes the badge.
+// Knock's React feed provider, popover and feed, styled to the chosen
+// prototype (Variant A): a bell beside the Cadence logo with an unread badge,
+// and a dropdown beside the sidebar. Opening the dropdown never marks anything
+// seen; only a row click or "Mark all read" changes the badge. A live arrival
+// updates the badge only: the open list keeps the rows it opened with until it
+// is reopened.
 
 const FEED_OPTIONS = { status: "all", page_size: 20 } as const;
 
+/** Opening the Feed must not mark anything seen, which is Knock's default. */
+const keepUnseen = () => {};
+
+const POPOVER_STYLE = {
+  "--rnf-notification-feed-popover-max-w": "24rem",
+  "--rnf-notification-feed-popover-min-w": "24rem",
+  "--rnf-notification-feed-popover-border-radius": "var(--radius-lg)",
+  "--rnf-notification-feed-popover-bg-color": "var(--popover)",
+} as CSSProperties;
+
 const KIND_META: Record<
-  string,
+  NotificationKind,
   { icon: typeof Bell; className: string }
 > = {
   "refund-request-opened": {
@@ -63,9 +91,14 @@ const FALLBACK_KIND = {
   className: "bg-muted text-muted-foreground",
 };
 
-function KindIcon({ workflow }: { workflow: string }) {
-  const { icon: Icon, className } =
-    KIND_META[workflow] ?? FALLBACK_KIND;
+function isNotificationKind(key: string): key is NotificationKind {
+  return key in KIND_META;
+}
+
+function KindIcon({ kind }: { kind: string }) {
+  const { icon: Icon, className } = isNotificationKind(kind)
+    ? KIND_META[kind]
+    : FALLBACK_KIND;
 
   return (
     <span
@@ -101,48 +134,114 @@ function NotificationText({ item }: { item: FeedItem }) {
   );
 }
 
-function relativeTime(iso: string) {
-  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-
-  if (seconds < 60) return "just now";
-
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
 function notificationUrl(item: FeedItem): string | null {
   const url = item.data?.url;
   return typeof url === "string" && url.length > 0 ? url : null;
 }
 
-function FeedBell() {
+function BellButton({
+  buttonRef,
+  onClick,
+  badge,
+}: {
+  buttonRef?: Ref<HTMLButtonElement>;
+  onClick: () => void;
+  badge?: ReactNode;
+}) {
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      onClick={onClick}
+      aria-label="Notifications"
+      title="Notifications"
+      className="relative rounded-md p-1.5 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+    >
+      <Bell className="size-5" />
+      {badge}
+    </button>
+  );
+}
+
+function MarkAllRead() {
   const { feedClient, useFeedStore } = useKnockFeed();
-  const { items, metadata, pageInfo, networkStatus } = useFeedStore();
+  const unread = useFeedStore((state) => state.metadata.unread_count);
+
+  return (
+    <button
+      type="button"
+      onClick={() => void feedClient.markAllAsRead()}
+      disabled={unread === 0}
+      className="text-xs font-medium text-primary hover:underline disabled:opacity-40"
+    >
+      Mark all read
+    </button>
+  );
+}
+
+function FeedHeader(_: NotificationFeedHeaderProps) {
+  return (
+    <div className="flex items-center justify-between border-b px-4 py-3">
+      <span className="text-sm font-semibold">Notifications</span>
+      <MarkAllRead />
+    </div>
+  );
+}
+
+function FeedBell() {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const { feedClient, useFeedStore } = useKnockFeed();
+  const { items, networkStatus } = useFeedStore();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const fetchedFor = useRef<typeof feedClient | null>(null);
+
+  // A live arrival may be fetched into the store while the dropdown is open.
+  // These remember what it opened with, so the list only changes on reopen.
+  const anchored = useRef(false);
+  const sawInitialLoad = useRef(false);
+  const openedIds = useRef<Set<string>>(new Set());
+  const oldestAtOpen = useRef<string | null>(null);
 
   useEffect(() => {
-    if (fetchedFor.current === feedClient) return;
-    fetchedFor.current = feedClient;
+    if (!open || anchored.current) return;
 
-    let cancelled = false;
-    void feedClient.fetch().finally(() => {
-      if (!cancelled) setLoading(false);
-    });
+    if (networkStatus === NetworkStatus.loading) {
+      sawInitialLoad.current = true;
+      return;
+    }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [feedClient]);
+    if (networkStatus === NetworkStatus.ready && sawInitialLoad.current) {
+      openedIds.current = new Set(items.map((item) => item.id));
+      oldestAtOpen.current = items.at(-1)?.inserted_at ?? "";
+      anchored.current = true;
+    }
+  }, [open, networkStatus, items]);
 
-  const unread = metadata.unread_count;
+  function openFeed() {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+
+    anchored.current = false;
+    sawInitialLoad.current = false;
+    openedIds.current = new Set();
+    oldestAtOpen.current = null;
+    setOpen(true);
+  }
+
+  /**
+   * While open, a row shows if it was there when the dropdown opened, or if it
+   * is older than the oldest loaded row (the next page). A live arrival is
+   * newer, so it waits for the next open.
+   */
+  function isOnScreen(item: FeedItem): boolean {
+    if (!open || !anchored.current) return true;
+    if (openedIds.current.has(item.id)) return true;
+
+    const oldest = oldestAtOpen.current;
+    return oldest !== null && item.inserted_at < oldest;
+  }
 
   function openNotification(item: FeedItem) {
     void feedClient.markAsRead(item);
@@ -154,97 +253,100 @@ function FeedBell() {
     }
   }
 
-  function loadNextPage(element: HTMLUListElement) {
-    if (!pageInfo.after || networkStatus !== NetworkStatus.ready) return;
-    if (
-      element.scrollTop + element.clientHeight <
-      element.scrollHeight - 24
-    ) {
-      return;
-    }
-    void feedClient.fetchNextPage();
-  }
+  const renderItem: NotificationFeedProps["renderItem"] = ({
+    item,
+    onItemClick,
+  }) => {
+    if (!isOnScreen(item)) return null;
+
+    const isUnread = item.read_at === null;
+    const hasUrl = notificationUrl(item) !== null;
+
+    return (
+      <button
+        type="button"
+        onClick={() => onItemClick?.(item)}
+        className={cn(
+          "flex w-full gap-3 px-4 py-3 text-left text-sm hover:bg-accent",
+          !isUnread && "opacity-55",
+          !hasUrl && "cursor-default"
+        )}
+      >
+        <KindIcon kind={item.source.key} />
+        <span className="min-w-0 flex-1">
+          <span className="block leading-snug">
+            <NotificationText item={item} />
+          </span>
+          <span
+            className="mt-1 block text-xs text-muted-foreground"
+            suppressHydrationWarning
+          >
+            {formatRelativeTime(item.inserted_at)}
+          </span>
+        </span>
+        {isUnread && (
+          <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
+        )}
+      </button>
+    );
+  };
+
+  return (
+    <div
+      className="notification-feed relative [&_.rnf-notification-feed__feed-items-container>*+*]:border-t"
+      style={POPOVER_STYLE}
+    >
+      <BellButton
+        buttonRef={buttonRef}
+        onClick={openFeed}
+        badge={<UnseenBadge badgeCountType="unread" />}
+      />
+
+      {open && (
+        <NotificationFeedPopover
+          isVisible={open}
+          buttonRef={buttonRef}
+          onOpen={keepUnseen}
+          onClose={() => setOpen(false)}
+          closeOnClickOutside
+          placement="right-start"
+          initialFilterStatus={FilterStatus.All}
+          onNotificationClick={openNotification}
+          renderHeader={(props) => <FeedHeader {...props} />}
+          renderItem={renderItem}
+          renderLoading={() => null}
+          EmptyComponent={
+            <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+              No Notifications yet.
+            </div>
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A signed-in person still gets the bell when Knock is not configured. There is
+ * no Feed to read from, so it has no badge and shows the empty state.
+ */
+function UnconfiguredFeed() {
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((isOpen) => !isOpen)}
-        aria-label={
-          unread > 0 ? `Notifications, ${unread} unread` : "Notifications"
-        }
-        title="Notifications"
-        className="relative rounded-md p-1.5 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-      >
-        <Bell className="size-5" />
-        {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white">
-            {unread > 9 ? "9+" : unread}
-          </span>
-        )}
-      </button>
+      <BellButton onClick={() => setOpen((isOpen) => !isOpen)} />
 
       {open && (
         <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setOpen(false)}
-          />
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute left-full top-0 z-50 ml-3 w-96 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-xl">
             <div className="flex items-center justify-between border-b px-4 py-3">
               <span className="text-sm font-semibold">Notifications</span>
-              <button
-                type="button"
-                onClick={() => void feedClient.markAllAsRead()}
-                disabled={unread === 0}
-                className="text-xs font-medium text-primary hover:underline disabled:opacity-40"
-              >
-                Mark all read
-              </button>
             </div>
-
-            <ul
-              className="max-h-[28rem] divide-y overflow-y-auto"
-              onScroll={(event) => loadNextPage(event.currentTarget)}
-            >
-              {!loading && items.length === 0 && (
-                <li className="px-4 py-10 text-center text-sm text-muted-foreground">
-                  No Notifications yet.
-                </li>
-              )}
-
-              {items.map((item) => {
-                const isUnread = item.read_at === null;
-                const hasUrl = notificationUrl(item) !== null;
-
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => openNotification(item)}
-                      className={cn(
-                        "flex w-full gap-3 px-4 py-3 text-left text-sm hover:bg-accent",
-                        !isUnread && "opacity-55",
-                        !hasUrl && "cursor-default"
-                      )}
-                    >
-                      <KindIcon workflow={item.source.key} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block leading-snug">
-                          <NotificationText item={item} />
-                        </span>
-                        <span className="mt-1 block text-xs text-muted-foreground">
-                          {relativeTime(item.inserted_at)}
-                        </span>
-                      </span>
-                      {isUnread && (
-                        <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+              No Notifications yet.
+            </p>
           </div>
         </>
       )}
@@ -252,11 +354,9 @@ function FeedBell() {
   );
 }
 
-export function NotificationFeed({
-  config,
-}: {
-  config: FeedConfig;
-}) {
+export function NotificationFeed({ config }: { config: FeedConfig | null }) {
+  if (!config) return <UnconfiguredFeed />;
+
   return (
     <KnockProvider
       apiKey={config.publicApiKey}

@@ -144,9 +144,7 @@ export function Sidebar({
         <NavLink to="/" className="text-lg font-bold tracking-tight">
           Cadence
         </NavLink>
-        {currentUser && notificationFeed && (
-          <NotificationFeed config={notificationFeed} />
-        )}
+        {currentUser && <NotificationFeed config={notificationFeed} />}
       </div>
 
       <nav className="flex-1 space-y-1 p-3">

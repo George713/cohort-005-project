@@ -825,7 +825,12 @@ export async function action({ params, request }: Route.ActionArgs) {
         parsed.data.body
       );
       if (!result.ok) {
-        return { ok: false, error: result.error };
+        // A validation message belongs beside the form; any other failure is
+        // the request being refused, which throws a response.
+        if (result.status === 400) {
+          return { ok: false, error: result.error };
+        }
+        throw data(result.error, { status: result.status });
       }
       if (result.notification) {
         await sendNotification(result.notification);
@@ -851,10 +856,10 @@ export async function action({ params, request }: Route.ActionArgs) {
         parsed.data.body
       );
       if (!result.ok) {
-        if (result.status === 404) {
-          throw data("Comment not found", { status: 404 });
+        if (result.status === 400) {
+          return { ok: false, error: result.error };
         }
-        return { ok: false, error: result.error };
+        throw data(result.error, { status: result.status });
       }
       return { ok: true };
     }
@@ -874,10 +879,7 @@ export async function action({ params, request }: Route.ActionArgs) {
       access.isStaff
     );
     if (!result.ok) {
-      if (result.status === 404) {
-        throw data("Comment not found", { status: 404 });
-      }
-      return { ok: false, error: result.error };
+      throw data(result.error, { status: result.status });
     }
 
     // The Notifications that pointed at the deleted Discussion Question or

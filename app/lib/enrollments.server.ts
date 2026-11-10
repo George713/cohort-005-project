@@ -23,6 +23,9 @@ type Enrollment = typeof enrollments.$inferSelect;
 
 export type Failure = { ok: false; error: string };
 
+/** A refused Individual Purchase, with the HTTP status the route should throw. */
+export type PurchaseFailure = Failure & { status: 400 | 404 | 409 };
+
 export type PurchaseEnrollment =
   | {
       ok: true;
@@ -30,7 +33,7 @@ export type PurchaseEnrollment =
       enrollment: Enrollment;
       notification: Notification;
     }
-  | Failure;
+  | PurchaseFailure;
 
 /**
  * The Instructor's "new Enrollment" Notification. It has no destination and
@@ -89,7 +92,11 @@ export function enrollFromIndividualPurchase(
   country: string | null
 ): PurchaseEnrollment {
   if (findEnrollment(db, buyerId, courseId)) {
-    return { ok: false, error: "You are already enrolled in this course." };
+    return {
+      ok: false,
+      status: 409,
+      error: "You are already enrolled in this course.",
+    };
   }
 
   const course = db
@@ -103,7 +110,7 @@ export function enrollFromIndividualPurchase(
     .get();
 
   if (!course) {
-    return { ok: false, error: "Course not found." };
+    return { ok: false, status: 404, error: "Course not found." };
   }
 
   const purchase = db

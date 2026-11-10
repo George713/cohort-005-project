@@ -2,8 +2,10 @@ import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fakeNotificationTransport } from "~/test/setup";
 import {
   archiveNotifications,
+  getFeedConfig,
   outboxTransport,
   sendNotification,
   type Notification,
@@ -23,30 +25,13 @@ const notification: Notification = {
   },
 };
 
-function fakeTransport() {
-  const sent: Parameters<NotificationTransport["send"]>[0][] = [];
-  const archived: Parameters<NotificationTransport["archive"]>[0][] = [];
-  return {
-    sent,
-    archived,
-    transport: {
-      async send(delivery: Parameters<NotificationTransport["send"]>[0]) {
-        sent.push(delivery);
-      },
-      async archive(archive: Parameters<NotificationTransport["archive"]>[0]) {
-        archived.push(archive);
-      },
-    } satisfies NotificationTransport,
-  };
-}
-
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe("sendNotification", () => {
   it("drops the actor from the recipients", async () => {
-    const fake = fakeTransport();
+    const fake = fakeNotificationTransport();
 
     await sendNotification(notification, fake.transport);
 
@@ -54,7 +39,7 @@ describe("sendNotification", () => {
   });
 
   it("sends nothing when the actor is the only recipient", async () => {
-    const fake = fakeTransport();
+    const fake = fakeNotificationTransport();
 
     await sendNotification(
       { ...notification, recipients: [notification.actor] },
@@ -65,12 +50,12 @@ describe("sendNotification", () => {
   });
 
   it("sends recipients as id-only objects and keeps the actor and data", async () => {
-    const fake = fakeTransport();
+    const fake = fakeNotificationTransport();
 
     await sendNotification(notification, fake.transport);
 
     expect(fake.sent[0]).toMatchObject({
-      workflow: "refund-request-opened",
+      kind: "refund-request-opened",
       recipients: [{ id: "1" }, { id: "3" }],
       actor: { id: "2" },
       data: notification.data,
@@ -86,7 +71,7 @@ describe("sendNotification", () => {
     expect(files).toHaveLength(1);
     const written = JSON.parse(readFileSync(join(directory, files[0]), "utf8"));
     expect(written).toMatchObject({
-      workflow: "refund-request-opened",
+      kind: "refund-request-opened",
       recipients: [{ id: "1" }, { id: "3" }],
       actor: { id: "2" },
       data: notification.data,
@@ -112,16 +97,16 @@ describe("sendNotification", () => {
 });
 
 describe("archiveNotifications", () => {
-  it("asks the transport to archive the workflow's copies of the subject", async () => {
-    const fake = fakeTransport();
+  it("asks the transport to archive the kind's copies of the subject", async () => {
+    const fake = fakeNotificationTransport();
 
     await archiveNotifications(
-      { workflow: "refund-request-opened", subjectId: 42 },
+      { kind: "refund-request-opened", subjectId: 42 },
       fake.transport
     );
 
     expect(fake.archived).toEqual([
-      { workflow: "refund-request-opened", subjectId: "42" },
+      { kind: "refund-request-opened", subjectId: 42 },
     ]);
   });
 
@@ -129,7 +114,7 @@ describe("archiveNotifications", () => {
     const directory = mkdtempSync(join(tmpdir(), "outbox-"));
 
     await archiveNotifications(
-      { workflow: "refund-request-opened", subjectId: 42 },
+      { kind: "refund-request-opened", subjectId: 42 },
       outboxTransport(directory)
     );
 
@@ -137,8 +122,9 @@ describe("archiveNotifications", () => {
     expect(files).toHaveLength(1);
     const written = JSON.parse(readFileSync(join(directory, files[0]), "utf8"));
     expect(written).toMatchObject({
-      workflow: "refund-request-opened",
-      subjectId: "42",
+      archived: true,
+      kind: "refund-request-opened",
+      subjectId: 42,
     });
   });
 
@@ -153,10 +139,21 @@ describe("archiveNotifications", () => {
 
     await expect(
       archiveNotifications(
-        { workflow: "refund-request-opened", subjectId: 42 },
+        { kind: "refund-request-opened", subjectId: 42 },
         brokenTransport
       )
     ).resolves.toBeUndefined();
     expect(logged).toHaveBeenCalled();
+  });
+});
+
+describe("getFeedConfig", () => {
+  it("returns null and warns once when the Feed is not configured", async () => {
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(getFeedConfig(1)).resolves.toBeNull();
+    await expect(getFeedConfig(2)).resolves.toBeNull();
+
+    expect(warned).toHaveBeenCalledTimes(1);
   });
 });

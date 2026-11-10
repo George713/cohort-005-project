@@ -4,6 +4,11 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
 import { fileURLToPath } from "url";
 import * as schema from "~/db/schema";
+import type {
+  ArchiveRequest,
+  NotificationDelivery,
+  NotificationTransport,
+} from "~/lib/notifications.server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,4 +79,57 @@ export function seedBaseData(testDb: ReturnType<typeof createTestDb>) {
     .get();
 
   return { user, instructor, category, course };
+}
+
+/**
+ * Adds a user with a unique email derived from their name, for tests that need
+ * people beyond the base seed.
+ */
+export function addUser(
+  testDb: ReturnType<typeof createTestDb>,
+  name: string,
+  role: schema.UserRole = schema.UserRole.Student
+) {
+  return testDb
+    .insert(schema.users)
+    .values({
+      name,
+      email: `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`,
+      role,
+    })
+    .returning()
+    .get();
+}
+
+export function addStudent(
+  testDb: ReturnType<typeof createTestDb>,
+  name: string
+) {
+  return addUser(testDb, name, schema.UserRole.Student);
+}
+
+export function addAdmin(
+  testDb: ReturnType<typeof createTestDb>,
+  name: string
+) {
+  return addUser(testDb, name, schema.UserRole.Admin);
+}
+
+/**
+ * A Notification transport that records what it was asked to send and archive,
+ * for tests at the Notifications seam.
+ */
+export function fakeNotificationTransport() {
+  const sent: NotificationDelivery[] = [];
+  const archived: ArchiveRequest[] = [];
+  const transport: NotificationTransport = {
+    async send(delivery) {
+      sent.push(delivery);
+    },
+    async archive(archive) {
+      archived.push(archive);
+    },
+  };
+
+  return { sent, archived, transport };
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useFetcher, useLocation } from "react-router";
+import { useFetcher, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { MessageSquare, Pencil, Reply, Trash2 } from "lucide-react";
 import { Button } from "~/components/ui/button";
@@ -8,6 +8,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { UserAvatar } from "~/components/user-avatar";
 import { cn, formatRelativeTime } from "~/lib/utils";
 import {
+  canDeleteComment,
   commentAnchorId,
   DISCUSSION_THREAD_ANCHOR_ID,
   MAX_COMMENT_LENGTH,
@@ -206,12 +207,14 @@ function CommentItem({
   canModerate,
   canPost,
   isReply,
+  highlightedReplyId,
 }: {
   comment: RenderedComment;
   currentUserId: number | null;
   canModerate: boolean;
   canPost: boolean;
   isReply: boolean;
+  highlightedReplyId: number | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [replying, setReplying] = useState(false);
@@ -230,6 +233,7 @@ function CommentItem({
           currentUserId={currentUserId}
           canModerate={canModerate}
           canPost={canPost}
+          highlightedReplyId={highlightedReplyId}
         />
       </div>
     );
@@ -238,11 +242,15 @@ function CommentItem({
   return (
     <div
       // A Notification links to #comment-<id>; the hash is also what :target
-      // uses to highlight the comment it names.
+      // uses to highlight the comment it names. A staff-reply Notification
+      // additionally names the new reply, which is highlighted directly.
       id={commentAnchorId(comment.id)}
       className={cn(
         "scroll-mt-24 py-3 target:rounded-lg target:bg-amber-50 target:ring-2 target:ring-amber-400/60 dark:target:bg-amber-950/40",
-        isReply && "border-l pl-4"
+        isReply && "border-l pl-4",
+        isReply &&
+          comment.id === highlightedReplyId &&
+          "rounded-lg bg-amber-50 ring-2 ring-amber-400/60 dark:bg-amber-950/40"
       )}
     >
       <div className="flex items-start gap-3">
@@ -296,10 +304,10 @@ function CommentItem({
             <CommentActions
               comment={comment}
               canEdit={isAuthor}
-              // A Discussion Question's author can edit it but not delete it;
-              // only staff can. A Discussion Reply can be deleted by its
-              // author or by staff.
-              canDelete={isReply ? isAuthor || canModerate : canModerate}
+              canDelete={canDeleteComment(
+                { authorId: comment.author.id, isReply },
+                { userId: currentUserId, isStaff: canModerate }
+              )}
               canReply={canPost && !isReply}
               deletePrompt={
                 isReply
@@ -331,6 +339,7 @@ function CommentItem({
         currentUserId={currentUserId}
         canModerate={canModerate}
         canPost={canPost}
+        highlightedReplyId={highlightedReplyId}
       />
     </div>
   );
@@ -341,11 +350,13 @@ function Replies({
   currentUserId,
   canModerate,
   canPost,
+  highlightedReplyId,
 }: {
   comment: RenderedComment;
   currentUserId: number | null;
   canModerate: boolean;
   canPost: boolean;
+  highlightedReplyId: number | null;
 }) {
   if (comment.replies.length === 0) return null;
 
@@ -359,6 +370,7 @@ function Replies({
           canModerate={canModerate}
           canPost={canPost}
           isReply
+          highlightedReplyId={highlightedReplyId}
         />
       ))}
     </div>
@@ -380,10 +392,15 @@ export function CommentThread({
   instructorName: string;
 }) {
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const replyParam = Number(searchParams.get("reply"));
+  const highlightedReplyId =
+    Number.isInteger(replyParam) && replyParam > 0 ? replyParam : null;
 
   // A Notification's url carries the anchor. If its comment was deleted (or a
   // stale link names one that never existed) fall back to the top of the
-  // discussion thread.
+  // discussion thread. A staff-reply url targets its Discussion Question and
+  // names the new Discussion Reply in ?reply=, which is highlighted below.
   useEffect(() => {
     const anchor = location.hash.slice(1);
     if (!anchor.startsWith("comment-")) return;
@@ -430,6 +447,7 @@ export function CommentThread({
                 canModerate={canModerate}
                 canPost={canPost}
                 isReply={false}
+                highlightedReplyId={highlightedReplyId}
               />
             ))}
           </div>

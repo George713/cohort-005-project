@@ -340,6 +340,11 @@ export async function action({ params, request }: Route.ActionArgs) {
     );
 
     if (!result.ok) {
+      // A missing course is a real failure, not something to hide behind the
+      // course page. An already-enrolled buyer still goes back to the course.
+      if (result.status === 404) {
+        throw data(result.error, { status: 404 });
+      }
       throw redirect(`/courses/${slug}`);
     }
 
