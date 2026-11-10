@@ -1,0 +1,51 @@
+name: Knock templates
+
+# Notification templates live in `.knock/`. Wording changes go through a pull
+# request like code; this workflow publishes the committed result. Keep the
+# path filter exact: a push that doesn't touch `.knock/` must not run it.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".knock/**"
+
+# One publish at a time. A run pushes and commits before it promotes, so two
+# overlapping runs could promote each other's commits out of order.
+concurrency:
+  group: knock-templates
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # The Knock CLI requires Node.js 24 or newer.
+          node-version: "24"
+
+      - name: Install the Knock CLI
+        run: npm install -g @knocklabs/cli@1
+
+      - name: Push and commit the templates to Knock Development
+        env:
+          KNOCK_SERVICE_TOKEN: ${{ secrets.KNOCK_SERVICE_TOKEN }}
+        run: >-
+          knock push
+          --knock-dir=.knock
+          --environment=development
+          --commit
+          -m "Sync with git commit ${GITHUB_SHA:0:7}"
+
+      - name: Promote the templates to Knock Production
+        env:
+          KNOCK_SERVICE_TOKEN: ${{ secrets.KNOCK_SERVICE_TOKEN }}
+        run: knock commit promote --to=production --force

@@ -100,6 +100,18 @@ You don't need these yet, but you'll be asked for them along the way. Both have 
 | `npm run cherry-pick <slug>` | Cherry-pick a lesson's solution              |
 | `npm run pull`               | Merge the course repo's latest `main` in     |
 
+### Knock templates and Production
+
+Notification templates live in `.knock/`. A push to `main` that changes them
+runs the `Knock templates` GitHub Actions workflow, which pushes and commits
+them to Knock Development, then promotes them to Production. It needs the
+`KNOCK_SERVICE_TOKEN` repository secret.
+
+Run `bash scripts/setup-knock-production.sh` once to create that token, turn
+on enhanced security in Knock Production, and collect the Production keys. The
+wizard writes them to `.env.production` (gitignored); copy them into wherever
+Production runs.
+
 ## Course Structure
 
 The course works through this codebase in eight sections:
