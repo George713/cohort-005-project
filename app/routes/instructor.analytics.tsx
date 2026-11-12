@@ -1,7 +1,7 @@
 import { Link, isRouteErrorResponse, useSearchParams } from "react-router";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import type { Route } from "./+types/instructor.analytics";
-import { requireInstructorOrAdmin } from "~/lib/access.server";
+import { requireInstructorOrAdmin } from "~/modules/course-access/index.server";
 import {
   ANALYTICS_RANGES,
   PLATFORM_FEE_PERCENT,
