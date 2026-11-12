@@ -20,7 +20,15 @@
 
 import fs from "node:fs";
 import { styleText } from "node:util";
-import { cancel, confirm, isCancel, intro, select, text } from "@clack/prompts";
+import {
+  cancel,
+  confirm,
+  isCancel,
+  intro,
+  select,
+  text,
+  type CANCEL_SYMBOL,
+} from "@clack/prompts";
 import {
   agentProviders,
   CUSTOM_ID,
@@ -108,14 +116,14 @@ export function clearChoice(file: string): void {
 }
 
 /** Ctrl+C at any prompt leaves without starting a server. */
-function stopIfCancelled<T>(value: T | symbol): T {
+function stopIfCancelled<T>(value: T | typeof CANCEL_SYMBOL): T {
   if (isCancel(value)) {
     // The saved answer is not mentioned. A student who leaves does not need a
     // report on a file they never asked for.
     cancel("No problem. Nothing was started.");
     process.exit(0);
   }
-  return value as T;
+  return value;
 }
 
 /**
