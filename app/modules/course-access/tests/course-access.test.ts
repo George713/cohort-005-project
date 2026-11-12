@@ -256,6 +256,14 @@ describe("Country Lock", () => {
       expect(await lockFor("US")).toEqual(NOT_LOCKED);
     });
 
+    it("ignores a refunded discounted Purchase made after a full-price Purchase", async () => {
+      addPurchase(student.id, "US");
+      const refunded = addPurchase(student.id, "IN");
+      addRefundRequest(refunded.id, schema.RefundStatus.Approved);
+
+      expect(await lockFor("US")).toEqual(NOT_LOCKED);
+    });
+
     it("ignores a refunded discounted Purchase when the Student is enrolled through a Claimed Seat", async () => {
       const refunded = addPurchase(student.id, "IN");
       addRefundRequest(refunded.id, schema.RefundStatus.Approved);
@@ -267,6 +275,14 @@ describe("Country Lock", () => {
     it("does not lock when any one of two unrefunded Purchases is usable here, in whichever country", async () => {
       addPurchase(student.id, "IN");
       addPurchase(student.id, "US");
+
+      expect(await lockFor("US")).toEqual(NOT_LOCKED);
+      expect(await lockFor("IN")).toEqual(NOT_LOCKED);
+    });
+
+    it("does not lock when the full-price Purchase came first and the discounted one second, in whichever country", async () => {
+      addPurchase(student.id, "US");
+      addPurchase(student.id, "IN");
 
       expect(await lockFor("US")).toEqual(NOT_LOCKED);
       expect(await lockFor("IN")).toEqual(NOT_LOCKED);
@@ -304,6 +320,19 @@ describe("Country Lock", () => {
         pppPurchaseCountry: "IN",
         canViewContent: false,
       });
+    });
+
+    it("reports the country of one of the locked Purchases when they were bought in different discounted countries", async () => {
+      addPurchase(student.id, "IN");
+      addPurchase(student.id, "BR");
+
+      const result = await lockFor("US");
+      expect(result).toMatchObject({
+        pppBlocked: true,
+        pppBlockedCountry: "US",
+        canViewContent: false,
+      });
+      expect(["IN", "BR"]).toContain(result.pppPurchaseCountry);
     });
   });
 

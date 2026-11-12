@@ -1,84 +1,10 @@
 import { db } from "~/db";
 import { getCurrentUserId } from "~/lib/session";
 import { resolveCountry } from "~/lib/country.server";
-import * as courseAccessLib from "./lib/course-access";
-import type { Access, Db } from "./lib/course-access";
+import { createCourseAccess, type Access } from "./lib/course-access";
 
+export { createCourseAccess } from "./lib/course-access";
 export type { Access } from "./lib/course-access";
-
-/**
- * Course Access bound to a database, deciding from plain values: who is asking
- * (a viewer id, or null when signed out), the country they're in now (or null
- * when unknown), and which course. The app uses the request-taking functions
- * below, which read the app database; tests build their own against a test
- * database.
- */
-export function createCourseAccess(database: Db) {
-  return {
-    /**
-     * Who the viewer is to this course and whether they may read its content.
-     * Never throws: signed-out and unenrolled viewers get a result too, so the
-     * lesson page can show a paywall preview. A viewer id with no matching
-     * user is treated as signed out.
-     */
-    async getAccess(
-      viewerId: number | null,
-      currentCountry: string | null,
-      courseId: number
-    ): Promise<Access> {
-      return courseAccessLib.getAccess(
-        database,
-        viewerId,
-        currentCountry,
-        courseId
-      );
-    },
-
-    /** Throws 401 unless someone is signed in. Returns their user id. */
-    async requireUserId(viewerId: number | null): Promise<number> {
-      return courseAccessLib.requireUserId(viewerId);
-    },
-
-    /**
-     * Throws 401 when signed out, 403 when the viewer can't see the course's
-     * content.
-     */
-    async requireContentAccess(
-      viewerId: number | null,
-      currentCountry: string | null,
-      courseId: number
-    ): Promise<Access> {
-      return courseAccessLib.requireContentAccess(
-        database,
-        viewerId,
-        currentCountry,
-        courseId
-      );
-    },
-
-    /** Throws unless the viewer is the course's own Instructor, or a Platform Admin. */
-    async requireStaff(
-      viewerId: number | null,
-      currentCountry: string | null,
-      courseId: number
-    ): Promise<Access> {
-      return courseAccessLib.requireStaff(
-        database,
-        viewerId,
-        currentCountry,
-        courseId
-      );
-    },
-
-    /**
-     * Throws unless the viewer is an Instructor or a Platform Admin, without
-     * tying them to a particular course.
-     */
-    async requireInstructorOrAdmin(viewerId: number | null) {
-      return courseAccessLib.requireInstructorOrAdmin(database, viewerId);
-    },
-  };
-}
 
 // Pure so a route importing this only for its loader doesn't pull the
 // database into the client bundle (see `~/db`).
@@ -136,7 +62,5 @@ export async function requireStaff(
  * particular course — for pages that span all of someone's courses.
  */
 export async function requireInstructorOrAdmin(request: Request) {
-  return courseAccess.requireInstructorOrAdmin(
-    await getCurrentUserId(request)
-  );
+  return courseAccess.requireInstructorOrAdmin(await getCurrentUserId(request));
 }
