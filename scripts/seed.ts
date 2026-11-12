@@ -72,6 +72,8 @@ async function seed() {
 
   // Drop and recreate tables for a clean seed
   sqlite.exec(`
+    DROP TABLE IF EXISTS bookmarks;
+    DROP TABLE IF EXISTS notes;
     DROP TABLE IF EXISTS comments;
     DROP TABLE IF EXISTS course_ratings;
     DROP TABLE IF EXISTS video_watch_events;
@@ -2067,6 +2069,51 @@ This course is still in draft while the cluster examples are rewritten against t
   markInProgress(students[4].id, course1LessonIds[1]);
 
   console.log(`Created ${countRows(schema.lessonProgress)} lesson progress records.`);
+
+  // ─── Bookmarks and Notes ───
+  // Enough for the Saved page and the Lesson note box to have something to
+  // show. Only enrolled students, on Lessons in their own Courses. Emma has
+  // both across two Courses, Olivia has one of each, and the rest have none,
+  // so the empty Saved page can be seen too.
+
+  db.insert(schema.bookmarks)
+    .values([
+      { userId: students[0].id, lessonId: course1LessonIds[4], createdAt: daysAgo(20) },
+      { userId: students[0].id, lessonId: course2LessonIds[6], createdAt: daysAgo(6) },
+      { userId: students[0].id, lessonId: course1LessonIds[17], createdAt: hoursAgo(3) },
+      { userId: students[2].id, lessonId: course2LessonIds[2], createdAt: daysAgo(12) },
+    ])
+    .run();
+
+  db.insert(schema.notes)
+    .values([
+      {
+        userId: students[0].id,
+        lessonId: course1LessonIds[4],
+        body: "Rewatch the part on narrowing.\n# and * should show as typed, not as Markdown.",
+        createdAt: daysAgo(20),
+        updatedAt: daysAgo(2),
+      },
+      {
+        userId: students[0].id,
+        lessonId: course2LessonIds[6],
+        body: "Try this against my own API before moving on.",
+        createdAt: daysAgo(6),
+        updatedAt: daysAgo(6),
+      },
+      {
+        userId: students[2].id,
+        lessonId: course1LessonIds[1],
+        body: "Ask about this in the discussion if it still doesn't click.",
+        createdAt: daysAgo(28),
+        updatedAt: hoursAgo(5),
+      },
+    ])
+    .run();
+
+  console.log(
+    `Created ${countRows(schema.bookmarks)} bookmarks and ${countRows(schema.notes)} notes.`
+  );
 
   // ─── Quiz Attempts ───
 
