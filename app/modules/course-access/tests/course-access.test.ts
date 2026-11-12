@@ -247,6 +247,66 @@ describe("Country Lock", () => {
     expect(await lockFor("US")).toEqual(NOT_LOCKED);
   });
 
+  describe("which Purchases count (ADR-0013)", () => {
+    it("ignores a refunded discounted Purchase when a later full-price Purchase exists", async () => {
+      const refunded = addPurchase(student.id, "IN");
+      addRefundRequest(refunded.id, schema.RefundStatus.Approved);
+      addPurchase(student.id, "US");
+
+      expect(await lockFor("US")).toEqual(NOT_LOCKED);
+    });
+
+    it("ignores a refunded discounted Purchase when the Student is enrolled through a Claimed Seat", async () => {
+      const refunded = addPurchase(student.id, "IN");
+      addRefundRequest(refunded.id, schema.RefundStatus.Approved);
+      claimSeat(student.id);
+
+      expect(await lockFor("US")).toEqual(NOT_LOCKED);
+    });
+
+    it("does not lock when any one of two unrefunded Purchases is usable here, in whichever country", async () => {
+      addPurchase(student.id, "IN");
+      addPurchase(student.id, "US");
+
+      expect(await lockFor("US")).toEqual(NOT_LOCKED);
+      expect(await lockFor("IN")).toEqual(NOT_LOCKED);
+    });
+
+    it("still locks a discounted Purchase whose Refund Request is Open", async () => {
+      const purchase = addPurchase(student.id, "IN");
+      addRefundRequest(purchase.id, schema.RefundStatus.Open);
+
+      expect(await lockFor("US")).toEqual({
+        pppBlocked: true,
+        pppBlockedCountry: "US",
+        pppPurchaseCountry: "IN",
+        canViewContent: false,
+      });
+    });
+
+    it("still locks a discounted Purchase whose Refund Request was Declined", async () => {
+      const purchase = addPurchase(student.id, "IN");
+      addRefundRequest(purchase.id, schema.RefundStatus.Declined);
+
+      expect(await lockFor("US")).toMatchObject({
+        pppBlocked: true,
+        canViewContent: false,
+      });
+    });
+
+    it("locks when every unrefunded Purchase is locked, reporting a locked Purchase's country", async () => {
+      addPurchase(student.id, "IN");
+      addPurchase(student.id, "IN");
+
+      expect(await lockFor("US")).toEqual({
+        pppBlocked: true,
+        pppBlockedCountry: "US",
+        pppPurchaseCountry: "IN",
+        canViewContent: false,
+      });
+    });
+  });
+
   it("does not lock a Platform Admin enrolled on a discounted Purchase, from abroad (ADR-0009)", async () => {
     const admin = addUser("Pat Admin", schema.UserRole.Admin);
     enroll(admin.id);
@@ -294,8 +354,33 @@ function enroll(userId: number) {
 }
 
 function addPurchase(userId: number, country: string | null) {
-  db.insert(schema.purchases)
+  return db
+    .insert(schema.purchases)
     .values({ userId, courseId: course.id, amountPaid: 1500, country })
+    .returning()
+    .get();
+}
+
+function addRefundRequest(purchaseId: number, status: schema.RefundStatus) {
+  db.insert(schema.refunds)
+    .values({ purchaseId, status, reason: "Changed my mind" })
+    .run();
+}
+
+/** A Seat on someone else's Team Licence, claimed by `userId`. */
+function claimSeat(userId: number) {
+  const teamAdmin = addUser("Tina Team", schema.UserRole.Student);
+  const team = db.insert(schema.teams).values({}).returning().get();
+  const licence = addPurchase(teamAdmin.id, "US");
+  db.insert(schema.coupons)
+    .values({
+      teamId: team.id,
+      courseId: course.id,
+      code: `SEAT-${licence.id}`,
+      purchaseId: licence.id,
+      redeemedByUserId: userId,
+      redeemedAt: new Date().toISOString(),
+    })
     .run();
 }
 

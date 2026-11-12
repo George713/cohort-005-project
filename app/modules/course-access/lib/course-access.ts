@@ -1,8 +1,16 @@
 import { data } from "react-router";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, notExists } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
-import { UserRole, courses, enrollments, purchases, users } from "~/db/schema";
+import {
+  RefundStatus,
+  UserRole,
+  courses,
+  enrollments,
+  purchases,
+  refunds,
+  users,
+} from "~/db/schema";
 import { checkCountryLock } from "./country-lock";
 
 export type Db = BetterSQLite3Database<typeof schema>;
@@ -65,12 +73,30 @@ function isUserEnrolled(db: Db, userId: number, courseId: number) {
     .get();
 }
 
-function findPurchase(db: Db, userId: number, courseId: number) {
+/** The Student's Purchases of the course that have no Approved Refund Request. */
+function findUnrefundedPurchases(db: Db, userId: number, courseId: number) {
   return db
     .select()
     .from(purchases)
-    .where(and(eq(purchases.userId, userId), eq(purchases.courseId, courseId)))
-    .get();
+    .where(
+      and(
+        eq(purchases.userId, userId),
+        eq(purchases.courseId, courseId),
+        notExists(
+          db
+            .select()
+            .from(refunds)
+            .where(
+              and(
+                eq(refunds.purchaseId, purchases.id),
+                eq(refunds.status, RefundStatus.Approved)
+              )
+            )
+        )
+      )
+    )
+    .orderBy(asc(purchases.id))
+    .all();
 }
 
 export function getAccess(
@@ -97,14 +123,19 @@ export function getAccess(
     purchaseCountry: null as string | null,
   };
 
+  // ADR-0013: refunded Purchases don't count, and one usable Purchase is
+  // enough. No counting Purchase (e.g. a Claimed Seat) means no lock.
   if (enrolled && !isStaff && course) {
-    const purchase = findPurchase(db, viewerId, courseId);
-    lock = checkCountryLock(
-      course.price,
-      course.pppEnabled,
-      purchase?.country ?? null,
-      currentCountry
+    const locks = findUnrefundedPurchases(db, viewerId, courseId).map(
+      (purchase) =>
+        checkCountryLock(
+          course.price,
+          course.pppEnabled,
+          purchase.country,
+          currentCountry
+        )
     );
+    if (locks.length > 0 && locks.every((l) => l.blocked)) lock = locks[0];
   }
 
   return {
