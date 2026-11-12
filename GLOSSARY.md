@@ -28,6 +28,10 @@ _Avoid_: Admin (on its own)
 A Student's place on a course, which lets them take it. A Student has at most one Enrollment per course, whether it came from an Individual Purchase or a Claimed Seat.
 _Avoid_: Place on a course, Access
 
+**Course Access**:
+What a person may do on a course: read its content, and moderate its discussions. The course's own Instructor and Platform Admins always have it. A Student gets it through an Enrollment, unless a Country Lock keeps them out.
+_Avoid_: Access (to mean Enrollment), Permissions
+
 **Lapsed**:
 A Student who has lost their Enrollment on a course but still has progress on it.
 
@@ -53,6 +57,14 @@ _Avoid_: Order, Transaction
 
 **Individual Purchase**:
 A Purchase a Student makes for themselves. It gives the buyer an Enrollment.
+
+**Purchasing-Power Price**:
+A course's price lowered for the country the buyer is in.
+_Avoid_: PPP (on its own), Regional pricing, Discount
+
+**Country Lock**:
+A Purchase made at a Purchasing-Power Price can only be used from the country it was bought in. A Student is kept out only when none of their unrefunded Purchases of the course can be used from where they are now.
+_Avoid_: PPP block, Geo-block
 
 **Team Licence**:
 A Purchase a Team Admin makes for others. It grants Seats, not an Enrollment; the buyer can't take the course through it.
