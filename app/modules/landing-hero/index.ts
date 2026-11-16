@@ -1,12 +1,12 @@
-import { heroActionsFor, type HeroViewer } from "./lib/hero-actions";
+import { heroActionsFor, type HeroPerson } from "./lib/hero-actions";
 
-export type { HeroAction, HeroViewer } from "./lib/hero-actions";
+export type { HeroAction, HeroPerson } from "./lib/hero-actions";
 
 /**
  * The buttons under the landing page hero, in display order, for whoever is
- * looking: a signed-out visitor, a Student, or anyone else signed in.
+ * looking: someone not signed in (`null`), a Student, or any other Person.
  * Exactly one action is primary, and it comes first.
  */
-export function heroActions(viewer: HeroViewer) {
-  return heroActionsFor(viewer);
+export function heroActions(person: HeroPerson) {
+  return heroActionsFor(person);
 }

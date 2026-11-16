@@ -1,6 +1,6 @@
 import { UserRole } from "~/db/schema";
 
-export type HeroViewer = { role: UserRole } | null;
+export type HeroPerson = { role: UserRole } | null;
 
 export type HeroAction = {
   label: string;
@@ -26,9 +26,9 @@ const continueLearning: HeroAction = {
   emphasis: "primary",
 };
 
-export function heroActionsFor(viewer: HeroViewer): HeroAction[] {
-  if (viewer === null) return [browseCourses("primary"), signUp];
-  if (viewer.role === UserRole.Student) {
+export function heroActionsFor(person: HeroPerson): HeroAction[] {
+  if (person === null) return [browseCourses("primary"), signUp];
+  if (person.role === UserRole.Student) {
     return [continueLearning, browseCourses("secondary")];
   }
   return [browseCourses("primary")];
