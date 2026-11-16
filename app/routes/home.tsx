@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { DevUI } from "~/components/dev-ui";
+import { heroActions } from "~/modules/landing-hero";
 import { getCurrentUserId, getDevCountry } from "~/lib/session";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { eq, like, and, or, sql } from "drizzle-orm";
@@ -234,23 +235,32 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl px-6 py-24 text-center">
-        <h1 className="text-5xl font-bold tracking-tight sm:text-6xl">
+      <section className="mx-auto max-w-6xl px-6 py-24">
+        <h1 className="max-w-3xl text-5xl font-bold tracking-tight sm:text-6xl">
           Learn to code,
           <br />
           <span className="text-muted-foreground">at your own pace</span>
         </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
+        <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
           Structured courses built by experienced instructors. Track your
           progress, take quizzes, and build real-world skills.
         </p>
-        <div className="mt-10 flex items-center justify-center gap-4">
-          <Button asChild size="lg">
-            <Link to="/courses">
-              Browse Courses
-              <ArrowRight className="ml-2 size-4" />
-            </Link>
-          </Button>
+        <div className="mt-10 flex flex-wrap items-center gap-4">
+          {heroActions(currentUser).map((action) => (
+            <Button
+              key={action.to}
+              asChild
+              size="lg"
+              variant={action.emphasis === "primary" ? "default" : "outline"}
+            >
+              <Link to={action.to}>
+                {action.label}
+                {action.emphasis === "primary" && (
+                  <ArrowRight className="ml-2 size-4" />
+                )}
+              </Link>
+            </Button>
+          ))}
         </div>
       </section>
 
