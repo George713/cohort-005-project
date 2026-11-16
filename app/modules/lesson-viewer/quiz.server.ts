@@ -192,6 +192,24 @@ export type LearnerQuiz = {
   }>;
 };
 
+/** A quiz without `isCorrect` on its options, so it can go to the browser. */
+export function toLearnerQuiz(
+  quizData: NonNullable<ReturnType<typeof getQuizWithQuestions>>
+): LearnerQuiz {
+  return {
+    id: quizData.id,
+    title: quizData.title,
+    passingScore: quizData.passingScore,
+    questions: quizData.questions.map((q) => ({
+      id: q.id,
+      questionText: q.questionText,
+      questionType: q.questionType,
+      position: q.position,
+      options: q.options.map((o) => ({ id: o.id, optionText: o.optionText })),
+    })),
+  };
+}
+
 /**
  * The lesson's quiz as a learner may see it — without `isCorrect`, so the
  * answers never reach the browser — and the learner's best attempt.
@@ -207,23 +225,7 @@ export function getQuizForLearner(
   if (!quizRecord) return { quiz: null, bestAttempt: null };
 
   const quizData = getQuizWithQuestions(quizRecord.id);
-  const quiz = quizData
-    ? {
-        id: quizData.id,
-        title: quizData.title,
-        passingScore: quizData.passingScore,
-        questions: quizData.questions.map((q) => ({
-          id: q.id,
-          questionText: q.questionText,
-          questionType: q.questionType,
-          position: q.position,
-          options: q.options.map((o) => ({
-            id: o.id,
-            optionText: o.optionText,
-          })),
-        })),
-      }
-    : null;
+  const quiz = quizData ? toLearnerQuiz(quizData) : null;
 
   const best = userId ? getBestAttempt(userId, quizRecord.id) : undefined;
   return {
